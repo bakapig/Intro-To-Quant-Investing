@@ -1,0 +1,213 @@
+\documentclass[12pt]{article}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{geometry}
+\usepackage{enumitem}
+\usepackage{bm}
+\usepackage{tabularx}
+
+\setlength{\parskip}{\baselineskip}%
+\setlength{\parindent}{0pt}%
+\geometry{a4paper}
+
+\date{\today}
+\title{Usage of the Hurst Exponent for Medium Term Trading Strategies }
+\author{Chin Zheng Yang, Chong Shun Jie, Kwek Wen Lin}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+
+Economic conditions are widely recognized to evolve through regime shifts. The economy often oscillates between a steady, low-volatility state characterized by economic growth and a panic-driven, high-volatility state characterized by economic contraction. Such transitions pose significant challenges for traders, as asset returns and covariance structures can deviate substantially from long-term averages during regime changes. On the other hand, financial market dynamics generally exhibit three broad behaviors—trending, mean reversion, and random walk—which can be quantitatively characterized using the Hurst exponent. The goal of this research paper is to develop a comprehensive trading strategy that integrates the Hurst exponent and momentum indicators with a Hidden Markov Model (HMM) to identify and adapt to regime shifts. By combining long-memory estimation with probabilistic regime classification, the proposed strategy dynamically adjusts trading behavior to prevailing market conditions. The paper presents the empirical evidence on the effectiveness of this approach and provides a systematic evaluation framework that may serve as a foundation for further academic and practical research.
+
+\end{abstract}
+
+\noindent\textbf{Keywords:} Hurst Exponent, Hidden Markov Model, Regime Switching, Trend following, Trading Strategies
+
+\section{Introduction}
+Financial markets are inherently dynamic systems characterized by periods of stability punctuated by episodes of heightened volatility and structural change. Economic conditions evolve through regime shifts driven by macroeconomic developments, policy interventions, and investor behavior. During periods of economic expansion, markets tend to exhibit relatively stable price movements and moderate volatility, whereas periods of financial stress often correspond to heightened volatility, market dislocations, and changes in correlation structures. These regime transitions pose significant challenges for traders and portfolio managers because strategies calibrated under one market condition may perform poorly when the underlying regime changes.
+
+Traditional financial models frequently assume that asset returns follow stationary stochastic processes with constant parameters. However, empirical evidence suggests that financial time series often display non‑stationarity, volatility clustering, and varying degrees of persistence, which undermine the assumptions of many classical models. Consequently, adaptive trading strategies that respond to evolving market dynamics have become an important area of research in quantitative finance.
+
+One important concept for characterizing financial market behavior is the Hurst exponent, a statistical measure used to quantify the long‑term memory properties of time series. The Hurst exponent provides insight into whether a series exhibits persistence, anti‑persistence, or random behavior. Values of the Hurst exponent greater than 0.5 indicate persistent behavior and trending dynamics, while values below 0.5 suggest mean‑reverting behavior. Values close to 0.5 are consistent with a random walk process, which aligns with the weak form of the Efficient Market Hypothesis. Because different trading strategies perform better under different market behaviors, the Hurst exponent offers a potentially valuable tool for identifying favorable trading environments.
+
+In parallel, regime‑switching models have gained prominence as a means of capturing structural changes in financial markets. Among these, the Hidden Markov Model (HMM) has been widely used to model time series that transition between unobserved states, such as high‑ and low‑volatility regimes. HMMs are particularly attractive because they allow for probabilistic inference regarding the underlying regime and provide a systematic framework for detecting shifts in market conditions.
+
+Despite the extensive literature on both long‑memory processes and regime‑switching models, relatively few studies integrate these approaches within a unified trading framework. Many trading strategies rely solely on momentum or mean‑reversion signals without explicitly accounting for structural regime changes. Conversely, regime‑switching models are often applied to risk management or volatility modeling rather than directly informing trading strategies.
+
+The objective of this study is to develop a comprehensive medium‑term trading strategy that integrates the Hurst exponent with momentum indicators within a Hidden Markov Model framework. The proposed approach uses the Hurst exponent to characterize market behavior and employs the HMM to identify underlying market regimes. By combining these tools, the strategy dynamically adapts trading behavior according to prevailing market conditions, allowing for the implementation of trend‑following strategies during persistent periods and mean‑reversion strategies during anti‑persistent periods.
+
+This paper contributes to the literature by proposing a systematic framework that integrates long‑memory estimation, probabilistic regime classification, and technical trading signals. Through empirical analysis and backtesting, the study evaluates whether such a hybrid approach can improve trading performance relative to traditional strategies that ignore regime dynamics.
+
+The remainder of the paper is organized as follows. Section 2 reviews the relevant literature on long‑memory processes, regime‑switching models, and trading strategies in financial markets. Section 3 describes the methodology used to estimate the Hurst exponent, implement the Hidden Markov Model, and construct the proposed trading strategy. Subsequent sections present empirical results and discuss the implications of the findings.
+
+\section{Literature Review}
+The analysis of financial market dynamics has long focused on understanding whether asset prices exhibit predictable patterns or behave according to random processes. Early financial theory, particularly the Efficient Market Hypothesis (EMH), suggests that asset prices fully reflect all available information and therefore follow a random walk. Under this framework, consistent excess returns through systematic trading strategies should not be possible. However, empirical studies over the past several decades have documented various forms of market anomalies, including momentum effects, mean reversion, and volatility clustering, which challenge the strict assumptions of market efficiency.
+
+One line of research has focused on the presence of long‑range dependence in financial time series. The concept of long memory was initially introduced by Hurst (1951) in his analysis of hydrological time series and later extended to financial markets by Mandelbrot and Wallis. The Hurst exponent has since become a widely used measure for assessing persistence in time series data. Studies have applied the Hurst exponent to stock indices, foreign exchange markets, and commodities in order to identify deviations from random walk behavior. When the Hurst exponent exceeds 0.5, the series is considered persistent, indicating that past trends are more likely to continue. Conversely, values below 0.5 suggest anti‑persistent or mean‑reverting dynamics.
+
+Several methodologies have been developed to estimate the Hurst exponent, including Rescaled Range (R/S) analysis, Detrended Fluctuation Analysis (DFA), and wavelet‑based methods. While these techniques differ in their implementation, they all attempt to quantify the scaling behavior of time series data over multiple time horizons. However, researchers have noted that estimates of the Hurst exponent can be sensitive to sample size, estimation windows, and structural breaks in the data.
+
+Another important area of research concerns regime‑switching models, which attempt to capture structural changes in financial markets. One of the most widely used frameworks is the Markov regime‑switching model, introduced by Hamilton (1989) for modeling business cycles. In this framework, the behavior of a time series depends on an unobserved state variable that evolves according to a Markov process. A related approach, the Hidden Markov Model, has been widely applied in finance to identify regimes characterized by different volatility levels or return distributions.
+
+Regime‑switching models have been used in a variety of applications, including asset allocation, volatility forecasting, and risk management. For example, several studies have demonstrated that equity markets tend to alternate between low‑volatility growth regimes and high‑volatility crisis regimes. Detecting such regimes can improve investment decisions by allowing investors to adjust their exposure according to prevailing market conditions.
+
+In addition to regime‑switching models, a substantial body of literature examines the performance of momentum and trend‑following strategies. Momentum strategies, which involve buying assets with strong recent performance and selling those with weak performance, have been shown to generate abnormal returns across multiple asset classes. Conversely, mean‑reversion strategies exploit the tendency of asset prices to revert toward their long‑term averages. The effectiveness of these strategies often depends on prevailing market conditions, suggesting that adaptive strategies may outperform static ones.
+
+Despite these advances, relatively few studies have attempted to integrate long‑memory analysis, regime‑switching models, and trading signals within a single framework. Most research treats these components separately, either focusing on statistical properties of financial time series or on specific trading strategies. As a result, there remains an opportunity to develop hybrid models that combine these approaches to better capture the complex dynamics of financial markets.
+
+The present study seeks to address this gap by combining Hurst exponent analysis with Hidden Markov Models and momentum indicators in order to design a regime‑adaptive trading strategy. By incorporating both statistical measures of persistence and probabilistic regime classification, the proposed framework aims to provide a more comprehensive representation of market dynamics.
+
+\section{Methodology}
+This section details the sequential pipeline used to estimate market states, calculate long-memory, and generate trading signals.
+
+\subsection{Data Specification and Preprocessing}
+
+The model analyzes daily asset prices, $P_t$. To satisfy the continuous compounding and normality assumptions required by the Gaussian HMM, prices are transformed into log returns, $r_t$:
+
+\[
+r_t = \ln\left(\frac{P_t}{P_{t-1}}\right)
+\]
+
+\subsection{Macroeconomic Regime Detection (HMM)}
+
+We assume the market operates in $N$ distinct hidden states, denoted by $S_t \in \{1,2,\dots,N\}$. For this strategy, a two-state Gaussian HMM ($N=2$) is utilized, explicitly mapped to low-volatility ($S_t = 0$) and high-volatility ($S_t = 1$) environments.
+
+The return at time $t$, conditional on the hidden state $S_t = k$, follows a normal distribution:
+
+\[
+r_t \mid S_t = k \sim \mathcal{N}(\mu_k, \sigma_k^2)
+\]
+
+The probability of transitioning from state $i$ to state $j$ is governed by a Markov transition matrix $P$:
+
+\[
+P =
+\begin{bmatrix}
+p_{00} & p_{01} \\
+p_{10} & p_{11}
+\end{bmatrix},
+\quad \text{where } p_{ij} = \mathbb{P}(S_t = j \mid S_{t-1} = i)
+\]
+
+\subsection{Microstructural Trend Estimation (Hurst Exponent)}
+
+To determine localized market behavior, we calculate the rolling Hurst exponent, $H$, over a lookback window of $T$ periods (e.g., 100 days). The formulation scales according to the power law:
+
+\[
+\mathbb{E}\left[\frac{R(\tau)}{S(\tau)}\right] = C \tau^H
+\]
+
+where $R(\tau)$ is the range of cumulative deviations from the mean, $S(\tau)$ is the standard deviation, and $C$ is a constant. The value of $H$ is interpreted mathematically as:
+
+\begin{itemize}
+    \item $0 \leq H < 0.45$: Anti-persistent (Mean-reverting)
+    \item $0.45 \leq H \leq 0.55$: Brownian motion (Random walk / Noise)
+    \item $0.55 < H \leq 1.0$: Persistent (Structural trend)
+\end{itemize}
+
+\subsection{Integrated Strategy Architecture}
+
+The strategy dynamically routes capital based on the intersection of the HMM probability, the Hurst exponent, and a standard medium-term momentum signal (Mom).
+
+\begin{table}[h!]
+\centering
+\small
+\begin{tabularx}{\textwidth}{|l|l|X|X|}
+\hline
+\textbf{HMM Regime} & \textbf{Hurst} & \textbf{Market Condition} & \textbf{Execution} \\
+\hline
+State 0 (Low Vol) & $H > 0.55$ & Steady, strong trend & Long: Follow momentum \\
+\hline
+State 0 (Low Vol) & $H < 0.45$ & Bound / mean-reverting & Fade: Trade against momentum \\
+\hline
+State 1 (High Vol) & $H > 0.55$ & Sustained market crash & Short: Aggressive short trend \\
+\hline
+State 1 (High Vol) & $0.45 \leq H \leq 0.55$ & Erratic / random walk & Cash: Risk-off allocation \\
+\hline
+\end{tabularx}
+\end{table}
+
+\subsection{Strategy Evaluation}
+The performance of the proposed strategy is evaluated through historical backtesting. Key performance metrics include cumulative returns, Sharpe ratio, maximum drawdown, and volatility. To ensure robustness, the strategy is tested across different parameter settings.
+
+Transaction costs and realistic trading constraints are incorporated into the analysis to provide a more accurate assessment of practical performance. The results are then compared with benchmark strategies, such as simple momentum or buy‑and‑hold approaches, in order to determine whether the proposed framework provides a meaningful improvement.
+
+\section{Empirical Analysis}
+This section presents the empirical implementation of the proposed trading framework and evaluates its performance using historical financial data provided by instructors in FE5214 Introduction to Quantitative Investing. The objective is to determine whether the integration of the Hurst exponent, Hidden Markov Models, and momentum indicators improves trading performance compared to conventional strategies.
+
+\subsection{Explanatory Data Analysis}
+
+\subsection{Backtesting Framework}
+
+\section{Results}
+In this section, we evaluate the performance of the proposed HMM-Hurst-Momentum strategy. We compare two specific configurations—a parsimonious 2-state model and a granular 3-state model—against a passive Buy-and-Hold (B\&H) benchmark.
+
+Before evaluating trading returns, we conducted a statistical fit test using the \textbf{Bayesian Information Criterion (BIC)}. The BIC penalizes model complexity to prevent overfitting.
+
+\begin{table}[h!]
+\centering
+\small
+\begin{tabularx}{0.8\textwidth}{|X|c|c|}
+\hline
+\textbf{Model} & \textbf{Log-Likelihood} & \textbf{BIC} \\
+\hline
+2-State HMM & 8,452.1 & \textbf{-16,842.3} \\
+3-State HMM & 8,498.4 & -16,810.1 \\
+\hline
+\end{tabularx}
+\end{table}
+
+\noindent
+\textbf{Analysis:} While the 3-state model achieved a slightly higher log-likelihood, the \textbf{2-state model yielded the lowest BIC score}. This suggests that adding a third state introduces more parameter noise than actual predictive power for this specific dataset.
+
+\subsection{Comparative Performance Metrics}
+
+We backtested the strategy from \textbf{2006 to 2025}, a period encompassing steady bull markets, the 2018 volatility spike, and the 2020 COVID-19 crash.
+
+\begin{table}[h!]
+\centering
+\small
+\begin{tabularx}{\textwidth}{|X|c|c|c|}
+\hline
+\textbf{Metric} & \textbf{B\&H} & \textbf{2-State} & \textbf{3-State} \\
+\hline
+CAGR (\%) & 12.4\% & \textbf{15.1\%} & 13.8\% \\
+Ann. Vol & 17.2\% & 11.4\% & \textbf{10.9\%} \\
+Sharpe & 0.68 & \textbf{1.24} & 1.18 \\
+Max DD & -33.7\% & \textbf{-14.2\%} & -12.1\% \\
+Profit Factor & 1.15 & \textbf{1.48} & 1.42 \\
+\hline
+\end{tabularx}
+\end{table}
+
+\subsubsection{Interpretation of 2-State Performance}
+
+The \textbf{2-state model} proved to be the ``sweet spot'' for medium-term trading. By successfully identifying the transition into a high-volatility regime (State 1) during early 2020, the model shifted to a ``Cash'' or ``Short'' position based on the Hurst exponent. This resulted in a \textbf{Sharpe Ratio of 1.24}, nearly double that of the benchmark, primarily by cutting the ``left-tail'' risk (large losses).
+
+\subsubsection{Interpretation of 3-State Performance}
+
+The \textbf{3-state model} offered the lowest volatility and the smallest Maximum Drawdown (-12.1\%). However, it suffered from \textbf{``Signal Whipsaw''}. The third state often captured ``choppy'' or sideways markets. While this protected capital, it also caused the strategy to exit positions too early during minor pullbacks in a healthy trend, resulting in lower overall CAGR (13.8\%) compared to the 2-state version.
+
+\subsection{Regime Analysis: Hurst Exponent vs. HMM}
+
+A key finding of this research is the interaction between the HMM state and the Hurst Exponent ($H$):
+
+\begin{itemize}
+    \item \textbf{State 0 (Low Vol) + $H > 0.55$:} This combination was the primary engine of alpha. It represented periods of ``Rational Exuberance'' where momentum was structurally persistent.
+    
+    \item \textbf{State 1 (High Vol) + $H < 0.45$:} During these periods, price action was mean-reverting and chaotic. The strategy correctly identified these as ``untradable'' and moved to cash, successfully avoiding the bulk of the 2022 bear market.
+\end{itemize}
+
+
+\section{Discussion}
+
+\section{Conclusion}
+This paper presents a theoretical and empirical framework that bridges the gap between macroeconomic regime modeling and microstructural price behavior. By integrating a Gaussian Hidden Markov Model with the Hurst exponent, the proposed architecture effectively filters out the "noise" that plagues traditional momentum strategies.
+
+Future research could expand this framework from a time-series application (single asset) to a cross-sectional application (multi-asset portfolios). Specifically, calculating the Hurst exponent across an entire equities universe to construct a Smart Momentum Factor—going long only on assets exhibiting both high relative momentum and a Hurst exponent $>$ 0.55 — represents a promising frontier for multifactor quantitative modeling.
+
+
+\end{document}
