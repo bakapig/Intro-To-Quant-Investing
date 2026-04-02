@@ -1,0 +1,4 @@
+Regime,Avg daily turnover (median),Avg Amihud (×10⁶),Avg agg DV (¥ bn),# days
+Normal (>−5%),5413.8052,0.0001,26.3,836
+Correction (−20%→−5%),5152.4462,0.0000,35.6,1160
+Bear (<−20%),4052.3064,0.0001,19.0,2863
