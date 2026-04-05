@@ -8,3 +8,4 @@ ipykernel
 hmmlearn
 tqdm
 hurst
+fathon
