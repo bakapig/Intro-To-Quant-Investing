@@ -1,0 +1,12 @@
+pandas>=2.0
+seaborn
+matplotlib
+numpy
+scikit-learn
+backtrader
+ipykernel
+hmmlearn
+tqdm
+hurst
+scipy
+statsmodels
