@@ -10,3 +10,4 @@ tqdm
 hurst
 scipy
 statsmodels
+pyarrow

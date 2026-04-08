@@ -8,3 +8,10 @@
 
 # Cache
 main/output/cache/
+
+# Virtual environments
+venv/
+env/
+
+# pycache
+*.pyc

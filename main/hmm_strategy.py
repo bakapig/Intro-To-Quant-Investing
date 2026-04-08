@@ -29,7 +29,7 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 
 
 def _fit_hmm_model(X, n_states):
-    """Fits a Gaussian HMM and returns the model and log-likelihood."""
+    """Fits a Gaussian HMM and returns the model and log-likelihood. Set random_state for reproducibility."""
     model = GaussianHMM(
         n_components=n_states,
         covariance_type="diag",
@@ -189,8 +189,11 @@ def _apply_strategy_rules(df, model, n_states, hurst_window=100, momentum_period
     is_lowest_vol = df["Regime"] == 0
     is_highest_vol = df["Regime"] == (n_states - 1)
 
-    high_hurst, low_hurst = df["Hurst"] > 0.55, df["Hurst"] < 0.45
+    high_hurst, low_hurst = df["Hurst"] > 0.51, df["Hurst"] < 0.49
+    random_walk_hurst = (df['Hurst'] >= 0.49) & (df['Hurst'] <= 0.51)
     pos_mom, neg_mom = df["Momentum"] > 0, df["Momentum"] < 0
+
+    print(f"High volatility regime count: {is_highest_vol.sum()}, Low volatility regime count: {is_lowest_vol.sum()}, High Hurst count: {high_hurst.sum()}, R Low Hurst count: {low_hurst.sum()}, Positive Momentum count: {pos_mom.sum()}, Negative Momentum count: {neg_mom.sum()}")
 
     # RULES
     df.loc[is_lowest_vol & high_hurst & pos_mom, "Signal"] = 1
@@ -272,7 +275,7 @@ def calculate_var_forecast(log_returns):
 # ---------------------------------------------------------------------------
 
 
-def process_single_asset(price_series, log_return_series, n_states):
+def process_single_asset(price_series, log_return_series, n_states, hurst_window=100, momentum_periods=5):
     """Applies the strategy logic to a single asset."""
     valid_price = price_series.dropna()
     valid_log_return = log_return_series.dropna()
@@ -287,12 +290,12 @@ def process_single_asset(price_series, log_return_series, n_states):
     # fit_hmm_regimes.  Inside, .values.reshape(-1,1) interleaves both columns
     # into a single 1-D sequence fed to the HMM.  This is what produced JC's
     # published results, so we replicate it exactly here.
-    bic_df, model = fit_hmm_regimes(df, n_states=n_states)
+    bic_df, model = fit_hmm_regimes(df["Log_Return"], n_states=n_states)
 
     if model is None:
         return pd.DataFrame(), pd.DataFrame()
 
-    df = _apply_strategy_rules(df, model, n_states)
+    df = _apply_strategy_rules(df, model, n_states, hurst_window, momentum_periods)
     df["VaR"] = calculate_var_forecast(df["Log_Return"])
 
     return df[["Log_Return", "Strategy_Return", "Signal", "VaR"]], bic_df
@@ -303,13 +306,13 @@ def process_single_asset(price_series, log_return_series, n_states):
 # ---------------------------------------------------------------------------
 
 
-def process_ticker(ticker, price_series, log_return_series, n_states):
+def process_ticker(ticker, price_series, log_return_series, n_states, hurst_window, momentum_periods):
     """Helper function to process a single ticker for parallel execution."""
-    asset_data, bic_df = process_single_asset(price_series, log_return_series, n_states)
+    asset_data, bic_df = process_single_asset(price_series, log_return_series, n_states, hurst_window, momentum_periods)
     return ticker, asset_data, bic_df
 
 
-def process_universe(df_prices, n_states, tickers_csv_path):
+def process_universe(df_prices, n_states, tickers_csv_path, hurst_window, momentum_periods):
     """
     Processes all assets with sector-neutral transformation.
 
@@ -323,12 +326,12 @@ def process_universe(df_prices, n_states, tickers_csv_path):
     -------
     strat_returns, bh_returns, signals, bic_all : DataFrames
     """
-    print(f"Processing assets and extracting indicators for {n_states} states...")
+    print(f"Processing assets and extracting indicators for {n_states} states, hurst_window={hurst_window}, momentum_periods={momentum_periods}...")
 
     tickers = pd.read_csv(tickers_csv_path, header=None)
     tickers.columns = ["ticker", "gics"]
     tickers["sector"] = tickers["gics"].apply(
-        lambda x: str(x)[:4] if x is not None else None
+        lambda x: str(x)[:2] if x is not None else None
     )
     tickers["industry"] = tickers["gics"].apply(
         lambda x: str(x)[:6] if x is not None else None
@@ -352,7 +355,7 @@ def process_universe(df_prices, n_states, tickers_csv_path):
     print(f"  Dispatching {len(df_prices.columns)} assets to CPU worker pool...")
     results = Parallel(n_jobs=-1)(
         delayed(process_ticker)(
-            ticker, df_prices[ticker], df_log_return_neutral[ticker], n_states
+            ticker, df_prices[ticker], df_log_return_neutral[ticker], n_states, hurst_window, momentum_periods
         )
         for ticker in tqdm(df_prices.columns, desc="Dispatching Tasks")
     )

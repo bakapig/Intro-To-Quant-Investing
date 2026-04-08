@@ -54,6 +54,16 @@ def generate_target_weights(
         return (active_weights.div(leverage_cap, axis=0)).fillna(0) * execution_signals
 
     # Approach A: Standard Market-Cap Weighting
+    if 'Date' in df_mcap.columns:
+        # Convert YYYYMMDD integers/strings to actual Datetime objects
+        df_mcap['Date'] = pd.to_datetime(df_mcap['Date'].astype(str), format='%Y%m%d')
+        # Set the Date column as the true index
+        df_mcap = df_mcap.set_index('Date')
+    
+    # 2. Ensure the index is a DatetimeIndex to perfectly match signals_df
+    df_mcap.index = pd.to_datetime(df_mcap.index)
+    
+    # Now reindex will align the dates properly instead of generating NaNs
     df_mcap = df_mcap.reindex(index=signals_df.index, columns=signals_df.columns)
     execution_mcap = df_mcap.shift(1)
 
@@ -95,7 +105,29 @@ class ChinaAShareCommission(bt.CommInfoBase):
             cost += turnover * self.p.stamp_duty
         return cost
 
+class CustomTradeLogAnalyzer(bt.Analyzer):
+    """
+    Custom Analyzer to cleanly extract all transaction details,
+    including the asset ticker, which standard Backtrader omits.
+    """
+    def __init__(self):
+        self.transactions = []
 
+    def notify_order(self, order):
+        # Only record completed orders (executed trades)
+        if order.status == order.Completed:
+            self.transactions.append({
+                'datetime': self.strategy.datetime.datetime(),
+                'ticker': order.data._name, # Safely grabs the exact ticker
+                'size': order.executed.size,
+                'price': order.executed.price,
+                'value': order.executed.value,
+                'commission': order.executed.comm
+            })
+
+    def get_analysis(self):
+        return self.transactions
+    
 class SignalData(bt.feeds.PandasData):
     """Custom Data Feed that includes pre-calculated Target Weight."""
 
@@ -135,6 +167,17 @@ class DetailedExecutionStrategy(bt.Strategy):
         self.month_start_value = None
         self.current_month = None
         self.trading_halted = False
+
+        # Used to ensure we rebalance exactly once per week, ignoring holidays
+        self.last_rebalance_week = None 
+    
+    def prenext(self):
+        """
+        Backtrader defaults to waiting until ALL 900+ assets have data.
+        Calling next() here forces it to run immediately from 2006,
+        even if some stocks don't IPO until 2023.
+        """
+        self.next()
 
     def log(self, txt, dt=None):
         if self.p.print_logs:
@@ -214,6 +257,19 @@ class DetailedExecutionStrategy(bt.Strategy):
 
             if self.trading_halted:
                 return
+        
+        # --------------------------------------------------
+        # WEEKLY REBALANCE GATE (Holiday Safe)
+        # --------------------------------------------------
+        # isocalendar()[1] returns the week number of the year (1-52).
+        # This ensures that if Monday is a holiday, it will rebalance on Tuesday.
+        current_week = current_date.isocalendar()[1]
+        
+        if current_week == self.last_rebalance_week:
+            return  # We already rebalanced this week, skip today.
+
+        # Mark this week as rebalanced!
+        self.last_rebalance_week = current_week
 
         for data in self.datas:
             target_pct = data.target_weight[0]
@@ -222,12 +278,6 @@ class DetailedExecutionStrategy(bt.Strategy):
                     target_pct = max(
                         min(target_pct, self.p.elder_max_pos), -self.p.elder_max_pos
                     )
-
-                # --- Weekly rebalance gate ---
-                # Only rebalance on the designated weekday (default Monday=0)
-                if current_date.weekday() != self.p.rebalance_day:
-                    continue
-
                 # --- Weight change threshold ---
                 # Skip if the change vs current position is below min threshold
                 pos = self.getposition(data)
@@ -284,7 +334,7 @@ def run_backtrader_engine(
     df_prices,
     target_weights_df,
     test_name="Strategy",
-    starting_cash=1_000_000.0,
+    starting_cash=100_000_000.0,
     logger=None,
     print_logs=False,
     output_dir="output",
@@ -328,7 +378,7 @@ def run_backtrader_engine(
         bt.analyzers.SharpeRatio, _name="sharpe", riskfreerate=0.02, annualize=True
     )
     cerebro.addanalyzer(bt.analyzers.TimeReturn, _name="returns")
-    cerebro.addanalyzer(bt.analyzers.Transactions, _name="transactions")
+    cerebro.addanalyzer(CustomTradeLogAnalyzer, _name="transactions")
 
     logger.info("Starting Backtest execution...")
     logger.info(f"Starting Portfolio Value: ${cerebro.broker.getvalue():.2f}")
@@ -359,13 +409,8 @@ def run_backtrader_engine(
     sharpe_analysis = strat.analyzers.sharpe.get_analysis()
     sharpe_ratio = sharpe_analysis.get("sharperatio") or 0
 
-    txn = strat.analyzers.transactions.get_analysis()
-    txn_df = pd.DataFrame(
-        [
-            {"datetime": k, "ticker": v[0][0], "size": v[0][1], "price": v[0][2]}
-            for k, v in txn.items()
-        ]
-    )
+    txn_data = strat.analyzers.transactions.get_analysis()
+    txn_df = pd.DataFrame(txn_data)
     txn_df.to_csv(
         os.path.join(output_dir, f"{test_name}_transactions.csv"), index=False
     )
