@@ -8,3 +8,6 @@
 
 # Cache
 main/output/cache/
+main/__pycache__/backtest_engine.cpython-312.pyc
+main/__pycache__/data_loader.cpython-312.pyc
+main/__pycache__/hmm_strategy.cpython-312.pyc
