@@ -278,18 +278,38 @@ class DetailedExecutionStrategy(bt.Strategy):
                     target_pct = max(
                         min(target_pct, self.p.elder_max_pos), -self.p.elder_max_pos
                     )
-                # --- Weight change threshold ---
-                # Skip if the change vs current position is below min threshold
+                
+                # --- Chinese A-Share 100-Lot Constraint ---
                 pos = self.getposition(data)
                 portfolio_value = self.broker.getvalue()
-                if portfolio_value > 0 and pos:
-                    current_pct = (pos.size * data.close[0]) / portfolio_value
+
+                # MUST STOP if portfolio is burnt to zero to prevent reverse-margin shorting bugs
+                if portfolio_value <= 0:
+                    return
+
+                if data.close[0] > 0:
+                    target_value = portfolio_value * target_pct
+                    raw_shares = target_value / data.close[0]
+                    # Round down to the nearest 100 shares (1 Board Lot = 100 shares)
+                    target_shares = int(raw_shares // 100) * 100
                 else:
-                    current_pct = 0.0
-                if abs(target_pct - current_pct) < self.p.min_weight_change:
+                    target_shares = 0
+
+                current_shares = pos.size if pos else 0
+
+                # Only issue an order if the lot-adjusted target differs from current holdings
+                if target_shares == current_shares:
                     continue
 
-                self.order_target_percent(data, target=target_pct)
+                # --- 5% Drift Tolerance ---
+                # Only rebalance if the shares needed to buy/sell are greater than a 5% difference
+                # from our current standing holdings to avoid micro-transaction spam in Buy & Hold
+                if current_shares != 0:
+                    change_pct = abs(target_shares - current_shares) / abs(current_shares)
+                    if change_pct < 0.05:
+                        continue
+
+                self.order_target_size(data, target=target_shares)
 
 
 # ---------------------------------------------------------------------------
@@ -297,7 +317,7 @@ class DetailedExecutionStrategy(bt.Strategy):
 # ---------------------------------------------------------------------------
 
 
-def setup_logger(test_name, output_dir="output"):
+def setup_logger(test_name, output_dir="output", console_out=True):
     """Create a logger that writes to both file and console."""
     import os
 
@@ -320,7 +340,9 @@ def setup_logger(test_name, output_dir="output"):
     ch.setFormatter(formatter)
 
     logger.addHandler(fh)
-    logger.addHandler(ch)
+
+    if console_out:
+        logger.addHandler(ch)
 
     return logger
 
@@ -339,6 +361,7 @@ def run_backtrader_engine(
     print_logs=False,
     output_dir="output",
     use_elder_rules=False,
+    console_out=True,
 ):
     """Initializes Cerebro, runs the engine, and calculates KPIs."""
     import os
@@ -346,9 +369,10 @@ def run_backtrader_engine(
     os.makedirs(output_dir, exist_ok=True)
 
     if logger is None:
-        logger = setup_logger(test_name, output_dir=output_dir)
+        logger = setup_logger(test_name, output_dir=output_dir, console_out=console_out)
 
-    print(f"\nInitializing Backtrader Engine for: {test_name} ...")
+    if console_out:
+        print(f"\nInitializing Backtrader Engine for: {test_name} ...")
 
     cerebro = bt.Cerebro()
     cerebro.broker.setcash(starting_cash)
@@ -426,4 +450,14 @@ def run_backtrader_engine(
     logger.info(f"Sharpe Ratio          : {sharpe_ratio:.2f}")
     logger.info("=" * 50)
 
-    return cerebro, strat
+    metrics = {
+        "Strategy": test_name,
+        "Final Value": final_value,
+        "Net PnL": net_pnl,
+        "Trades": total_closed,
+        "Win Rate (%)": win_rate,
+        "Max DD (%)": max_dd,
+        "Sharpe": sharpe_ratio,
+    }
+
+    return cerebro, strat, metrics
