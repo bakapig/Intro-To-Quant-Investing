@@ -15,6 +15,7 @@ Usage:
     python run_strategy.py
 """
 
+import datetime
 import os
 import sys
 import warnings
@@ -41,7 +42,7 @@ from backtest_engine import (
 # ===========================================================================
 
 DATA_DIR = "data_cn"
-OUTPUT_DIR = "output"
+OUTPUT_DIR = "output_20260410"
 
 def _run_backtest_task(task_kwargs):
     """Wrapper to run backtest and prevent pickling Cerebro objects back to main process."""
@@ -74,65 +75,66 @@ def main(hurst_window, n_states):
     # ------------------------------------------------------------------
     # Step 2: Run the Main Engine (Extract Returns and Hurst)
     # ------------------------------------------------------------------
-    print("\n[2/5] Processing universe with HMM regimes...")
+    # print("\n[2/5] Processing universe with HMM regimes...")
 
-    # Run with the specified number of states
-    print(f"\n  --- {n_states}-State HMM ---")
-    strat_ret, bh_ret, signal_df, bic_all, var_df = process_universe(
-        df_prices, n_states=n_states, tickers_csv_path=tickers_csv_path, hurst_window=hurst_window, momentum_periods=momentum_periods
-    )
+    # # Run with the specified number of states
+    # print(f"\n  --- {n_states}-State HMM ---")
+    # strat_ret, bh_ret, signal_df, bic_all, var_df = process_universe(
+    #     df_prices, n_states=n_states, tickers_csv_path=tickers_csv_path, hurst_window=hurst_window, momentum_periods=momentum_periods
+    # )
 
-    # # Cache signals and VaR so extra backtests can skip HMM+Hurst
-    cache_dir = os.path.join(OUTPUT_DIR, "cache")
-    os.makedirs(cache_dir, exist_ok=True)
-    signal_df.to_parquet(os.path.join(cache_dir, f"signal_df (STATES={n_states}, HURST WINDOW={hurst_window}, MOMENTUM PERIODS={momentum_periods}).parquet"))
-    var_df.to_parquet(os.path.join(cache_dir, f"var_df (STATES={n_states}, HURST WINDOW={hurst_window}, MOMENTUM PERIODS={momentum_periods}).parquet"))
-    print("  Cached signals and VaR to output/cache/")
+    # # # Cache signals and VaR so extra backtests can skip HMM+Hurst
+    # cache_dir = os.path.join(OUTPUT_DIR, "cache")
+    # os.makedirs(cache_dir, exist_ok=True)
+    # signal_df.to_parquet(os.path.join(cache_dir, f"signal_df (STATES={n_states}, HURST WINDOW={hurst_window}, MOMENTUM PERIODS={momentum_periods}).parquet"))
+    # var_df.to_parquet(os.path.join(cache_dir, f"var_df (STATES={n_states}, HURST WINDOW={hurst_window}, MOMENTUM PERIODS={momentum_periods}).parquet"))
+    # print("  Cached signals and VaR to output/cache/")
 
-    # ------------------------------------------------------------------
-    # Step 3: BIC Analysis
-    # ------------------------------------------------------------------
-    print("\n[3/5] Running BIC analysis...")
-    bic_summary = bic_all.groupby("n_states")["bic"].agg(["mean", "std", "count"])
+    # # ------------------------------------------------------------------
+    # # Step 3: BIC Analysis
+    # # ------------------------------------------------------------------
+    # print("\n[3/5] Running BIC analysis...")
+    # bic_summary = bic_all.groupby("n_states")["bic"].agg(["mean", "std", "count"])
 
-    # best_model = bic_all.loc[bic_all.groupby("ticker")["bic"].idxmin()]
-    # selection_freq = best_model["n_states"].value_counts(normalize=True)
+    # # best_model = bic_all.loc[bic_all.groupby("ticker")["bic"].idxmin()]
+    # # selection_freq = best_model["n_states"].value_counts(normalize=True)
 
-    print("\nBIC Summary:")
-    print(bic_summary)
-    # print("\nModel Selection Frequency:")
-    # print(selection_freq)
+    # print("\nBIC Summary:")
+    # print(bic_summary)
+    # # print("\nModel Selection Frequency:")
+    # # print(selection_freq)
 
-    bic_summary.to_csv(os.path.join(OUTPUT_DIR, "bic_summary.csv"))
+    # bic_summary.to_csv(os.path.join(OUTPUT_DIR, "bic_summary.csv"))
 
-    # ------------------------------------------------------------------
-    # Step 4: Evaluate Portfolio Returns (MCap Weighted)
-    # ------------------------------------------------------------------
-    print(f"\n[4/5] Evaluating portfolio performance ({n_states}-state model)...")
+    # # ------------------------------------------------------------------
+    # # Step 4: Evaluate Portfolio Returns (MCap Weighted)
+    # # ------------------------------------------------------------------
+    # print(f"\n[4/5] Evaluating portfolio performance ({n_states}-state model)...")
 
-    portfolio_eval_df = calculate_mcap_weighted_returns(
-        strat_log_returns=strat_ret, bh_log_returns=bh_ret, mcap_df=df_mcap
-    )
+    # portfolio_eval_df = calculate_mcap_weighted_returns(
+    #     strat_log_returns=strat_ret, bh_log_returns=bh_ret, mcap_df=df_mcap
+    # )
 
-    performance_metrics = evaluate_backtest(portfolio_eval_df)
+    # performance_metrics = evaluate_backtest(portfolio_eval_df)
 
-    print("\n--- Strategy vs Benchmark Performance ---")
-    print(performance_metrics)
-    print("-" * 50)
+    # print("\n--- Strategy vs Benchmark Performance ---")
+    # print(performance_metrics)
+    # print("-" * 50)
 
-    performance_metrics.to_csv(os.path.join(OUTPUT_DIR, "performance_metrics.csv"))
+    # performance_metrics.to_csv(os.path.join(OUTPUT_DIR, "performance_metrics.csv"))
 
     # ------------------------------------------------------------------
     # Step 5: Backtrader Execution
     # ------------------------------------------------------------------
     print("\n[5/5] Running Backtrader backtests...")
+    cache_dir = "./output/cache/"
     signal_df = pd.read_parquet(os.path.join(cache_dir, f"signal_df (STATES={n_states}, HURST WINDOW={hurst_window}, MOMENTUM PERIODS={momentum_periods}).parquet"))
     var_df = pd.read_parquet(os.path.join(cache_dir, f"var_df (STATES={n_states}, HURST WINDOW={hurst_window}, MOMENTUM PERIODS={momentum_periods}).parquet"))
 
     target_weights = generate_target_weights(signal_df, df_mcap)
 
     common_columns = list(
-        set(df_prices.columns).intersection(set(target_weights.columns))
+        col for col in df_prices.columns if col in target_weights.columns
     )
 
     bh_weights = generate_target_weights(
@@ -150,19 +152,27 @@ def main(hurst_window, n_states):
         target_risk=0.01,  # 1% VaR risk budget per asset
     )
 
+    current_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+
     print("Buy & Hold Weights:")
     print((bh_weights[common_columns].iloc[0:200, :] != 0).sum(axis=1))
+    bh_weights[common_columns].to_csv(f"{OUTPUT_DIR}/bh_weights_hurst_window_{current_time}_(States = {n_states}, Hurst Window={hurst_window}, Momentum Periods={momentum_periods}).csv")
+
     print("\nHMM & Hurst Strategy Weights:")
     print((strat_weights[common_columns].iloc[0:200, :] != 0).sum(axis=1).head(300))
+    strat_weights[common_columns].to_csv(f"{OUTPUT_DIR}/strat_weights_hurst_window_{current_time}_(States = {n_states}, Hurst Window={hurst_window}, Momentum Periods={momentum_periods}).csv")
+
     print("\nHMM & Hurst Strategy with GARCH VaR Parity Weights:")
     print((rp_weights[common_columns].iloc[0:200, :] != 0).sum(axis=1).head(300))
+    rp_weights[common_columns].to_csv(f"{OUTPUT_DIR}/rp_weights_hurst_window_{current_time}_(States = {n_states}, Hurst Window={hurst_window}, Momentum Periods={momentum_periods}).csv")
+
 
     print("\n  Dispatching parallel backtests to CPU worker pool...")
     backtest_tasks = [
         {
             "df_prices": df_prices[common_columns],
             "target_weights_df": bh_weights[common_columns],
-            "test_name": "Buy & Hold (Market Cap Weighted)",
+            "test_name": f"Buy & Hold (Market Cap Weighted) {current_time}",
             "print_logs": False,
             "output_dir": OUTPUT_DIR,
             "use_elder_rules": False,
@@ -170,7 +180,7 @@ def main(hurst_window, n_states):
         {
             "df_prices": df_prices[common_columns],
             "target_weights_df": strat_weights[common_columns],
-            "test_name": f"HMM & Hurst Strategy (States = {n_states}, Hurst Window={hurst_window}, Momentum Periods={momentum_periods})",
+            "test_name": f"HMM & Hurst Strategy (States = {n_states}, Hurst Window={hurst_window}, Momentum Periods={momentum_periods}) {current_time}",
             "print_logs": False,
             "output_dir": OUTPUT_DIR,
             "use_elder_rules": False,
@@ -178,7 +188,7 @@ def main(hurst_window, n_states):
         {
             "df_prices": df_prices[common_columns],
             "target_weights_df": strat_weights[common_columns],
-            "test_name": f"HMM & Hurst Strategy (Elder Rules) (States = {n_states}, Hurst Window={hurst_window}, Momentum Periods={momentum_periods})",
+            "test_name": f"HMM & Hurst Strategy (Elder Rules) (States = {n_states}, Hurst Window={hurst_window}, Momentum Periods={momentum_periods}) {current_time}",
             "print_logs": False,
             "output_dir": OUTPUT_DIR,
             "use_elder_rules": True,
@@ -186,7 +196,7 @@ def main(hurst_window, n_states):
         {
             "df_prices": df_prices[common_columns],
             "target_weights_df": rp_weights[common_columns],
-            "test_name": f"HMM & Hurst Strategy (GARCH VaR Parity) (States = {n_states}, Hurst Window={hurst_window}, Momentum Periods={momentum_periods})",
+            "test_name": f"HMM & Hurst Strategy (GARCH VaR Parity) (States = {n_states}, Hurst Window={hurst_window}, Momentum Periods={momentum_periods}) {current_time}",
             "print_logs": False,
             "output_dir": OUTPUT_DIR,
             "use_elder_rules": False,
@@ -203,9 +213,10 @@ def main(hurst_window, n_states):
 if __name__ == "__main__":
     n_states = 2
 
-    for hurst_window in [100, 150, 200, 250]:
+    for hurst_window in [100]:
         print("\n" + "=" * 70)
         print(f"Running strategy with States={n_states}, Hurst Window={hurst_window}")
         print("=" * 70)
         main(hurst_window, n_states)
+
     # main()

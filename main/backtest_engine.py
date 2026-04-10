@@ -401,8 +401,16 @@ def run_backtrader_engine(
     cerebro.addanalyzer(
         bt.analyzers.SharpeRatio, _name="sharpe", riskfreerate=0.02, annualize=True
     )
+    cerebro.addanalyzer(
+        bt.analyzers.SharpeRatio_A,
+        _name="sharpe_a",
+        riskfreerate=0.02,
+        annualize=True,
+        timeframe=bt.TimeFrame.Days,
+    )
     cerebro.addanalyzer(bt.analyzers.TimeReturn, _name="returns")
     cerebro.addanalyzer(CustomTradeLogAnalyzer, _name="transactions")
+    cerebro.addanalyzer(bt.analyzers.PositionsValue, _name="positions_value")
 
     logger.info("Starting Backtest execution...")
     logger.info(f"Starting Portfolio Value: ${cerebro.broker.getvalue():.2f}")
@@ -413,42 +421,145 @@ def run_backtrader_engine(
     final_value = cerebro.broker.getvalue()
     net_pnl = final_value - starting_cash
 
-    trade_analysis = strat.analyzers.trades.get_analysis()
-    try:
-        total_closed = trade_analysis.total.closed
-    except (KeyError, AttributeError):
-        total_closed = 0
-    try:
-        won_trades = trade_analysis.won.total
-    except (KeyError, AttributeError):
-        won_trades = 0
-    win_rate = (won_trades / total_closed * 100) if total_closed > 0 else 0
+    # ========================
+    # Trade Analysis
+    # ========================
+    ta = strat.analyzers.trades.get_analysis()
 
-    drawdown_analysis = strat.analyzers.drawdown.get_analysis()
-    try:
-        max_dd = drawdown_analysis.max.drawdown
-    except (KeyError, AttributeError):
-        max_dd = 0.0
+    def safe_get(d, *keys):
+        for k in keys:
+            d = d.get(k, {})
+        return d if d != {} else 0
 
-    sharpe_analysis = strat.analyzers.sharpe.get_analysis()
-    sharpe_ratio = sharpe_analysis.get("sharperatio") or 0
+    total_open = safe_get(ta, "total", "open")
+    total_closed = safe_get(ta, "total", "closed")
 
-    txn_data = strat.analyzers.transactions.get_analysis()
-    txn_df = pd.DataFrame(txn_data)
-    txn_df.to_csv(
-        os.path.join(output_dir, f"{test_name}_transactions.csv"), index=False
-    )
+    won_total = safe_get(ta, "won", "total")
+    lost_total = safe_get(ta, "lost", "total")
 
-    logger.info("\n" + "=" * 50)
+    win_rate = (won_total / total_closed * 100) if total_closed > 0 else 0
+
+    # Streaks
+    win_streak_current = safe_get(ta, "streak", "won", "current")
+    win_streak_longest = safe_get(ta, "streak", "won", "longest")
+    loss_streak_current = safe_get(ta, "streak", "lost", "current")
+    loss_streak_longest = safe_get(ta, "streak", "lost", "longest")
+
+    # PnL
+    pnl_total = safe_get(ta, "pnl", "net", "total")
+    pnl_avg = safe_get(ta, "pnl", "net", "average")
+
+    # Won/Lost stats
+    won_pnl_total = safe_get(ta, "won", "pnl", "total")
+    won_pnl_avg = safe_get(ta, "won", "pnl", "average")
+    won_pnl_max = safe_get(ta, "won", "pnl", "max")
+
+    lost_pnl_total = safe_get(ta, "lost", "pnl", "total")
+    lost_pnl_avg = safe_get(ta, "lost", "pnl", "average")
+    lost_pnl_max = safe_get(ta, "lost", "pnl", "max")
+
+    # Long/Short
+    long_total = safe_get(ta, "long", "total")
+    long_pnl_total = safe_get(ta, "long", "pnl", "total")
+    long_pnl_avg = safe_get(ta, "long", "pnl", "average")
+    long_pnl_max = safe_get(ta, "long", "pnl", "max")
+
+    short_total = safe_get(ta, "short", "total")
+    short_pnl_total = safe_get(ta, "short", "pnl", "total")
+    short_pnl_avg = safe_get(ta, "short", "pnl", "average")
+    short_pnl_max = safe_get(ta, "short", "pnl", "max")
+
+    # Length (bars)
+    len_total = safe_get(ta, "len", "total")
+    len_avg = safe_get(ta, "len", "average")
+    len_max = safe_get(ta, "len", "max")
+    len_min = safe_get(ta, "len", "min")
+
+    # ========================
+    # Drawdown
+    # ========================
+    dd = strat.analyzers.drawdown.get_analysis()
+    max_dd = safe_get(dd, "max", "drawdown")
+
+    # ========================
+    # Sharpe
+    # ========================
+    sharpe_ratio = strat.analyzers.sharpe.get_analysis().get("sharperatio", 0)
+    sharpe_a_ratio = strat.analyzers.sharpe_a.get_analysis().get("sharperatio", 0)
+
+    # ========================
+    # Time Returns → Annual Return
+    # ========================
+    returns_dict = strat.analyzers.returns.get_analysis()
+    returns_series = pd.Series(returns_dict)
+
+    total_return = (1 + returns_series).prod() - 1
+    annual_return = (1 + total_return) ** (252 / len(returns_series)) - 1
+
+    # ========================
+    # Calmar Ratio
+    # ========================
+    calmar = (annual_return / (max_dd / 100)) if max_dd != 0 else 0
+
+    # ========================
+    # Positions Value
+    # ========================
+    pos_val = strat.analyzers.positions_value.get_analysis()
+    pos_df = pd.DataFrame(pos_val)
+
+    # ========================
+    # Logging
+    # ========================
+    logger.info("\n" + "=" * 60)
     logger.info(f"BACKTRADER RESULTS: {test_name.upper()}")
-    logger.info("=" * 50)
+    logger.info("=" * 60)
+
     logger.info(f"Final Portfolio Value : ${final_value:,.2f}")
     logger.info(f"Net PnL               : ${net_pnl:,.2f}")
-    logger.info(f"Total Trades Closed   : {total_closed:,}")
-    logger.info(f"Win Rate (Strike Rate): {win_rate:.2f}%")
+
+    logger.info("--- Returns ---")
+    logger.info(f"Total Return          : {total_return:.2%}")
+    logger.info(f"Annual Return         : {annual_return:.2%}")
+    logger.info(f"Calmar Ratio          : {calmar:.2f}")
+
+    logger.info("--- Trades ---")
+    logger.info(f"Open Trades           : {total_open}")
+    logger.info(f"Closed Trades         : {total_closed}")
+    logger.info(f"Win Rate              : {win_rate:.2f}%")
+
+    logger.info("--- Streaks ---")
+    logger.info(f"Win Streak (Cur/Max)  : {win_streak_current}/{win_streak_longest}")
+    logger.info(f"Loss Streak (Cur/Max) : {loss_streak_current}/{loss_streak_longest}")
+
+    logger.info("--- PnL ---")
+    logger.info(f"Total PnL             : {pnl_total:,.2f}")
+    logger.info(f"Avg PnL               : {pnl_avg:,.2f}")
+
+    logger.info("--- Won Trades ---")
+    logger.info(f"Count                 : {won_total}")
+    logger.info(f"Total/Avg/Max         : {won_pnl_total:.2f} / {won_pnl_avg:.2f} / {won_pnl_max:.2f}")
+
+    logger.info("--- Lost Trades ---")
+    logger.info(f"Count                 : {lost_total}")
+    logger.info(f"Total/Avg/Max         : {lost_pnl_total:.2f} / {lost_pnl_avg:.2f} / {lost_pnl_max:.2f}")
+
+    logger.info("--- Long Trades ---")
+    logger.info(f"Count                 : {long_total}")
+    logger.info(f"Total/Avg/Max         : {long_pnl_total:.2f} / {long_pnl_avg:.2f} / {long_pnl_max:.2f}")
+
+    logger.info("--- Short Trades ---")
+    logger.info(f"Count                 : {short_total}")
+    logger.info(f"Total/Avg/Max         : {short_pnl_total:.2f} / {short_pnl_avg:.2f} / {short_pnl_max:.2f}")
+
+    logger.info("--- Trade Length (bars) ---")
+    logger.info(f"Total/Avg/Max/Min     : {len_total} / {len_avg:.2f} / {len_max} / {len_min}")
+
+    logger.info("--- Risk ---")
     logger.info(f"Max Drawdown          : {max_dd:.2f}%")
     logger.info(f"Sharpe Ratio          : {sharpe_ratio:.2f}")
-    logger.info("=" * 50)
+    logger.info(f"Sharpe Ratio (Annual) : {sharpe_a_ratio:.2f}")
+
+    logger.info("=" * 60)
 
     metrics = {
         "Strategy": test_name,
