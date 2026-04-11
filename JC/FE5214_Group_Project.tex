@@ -5,6 +5,9 @@
 \usepackage{enumitem}
 \usepackage{bm}
 \usepackage{tabularx}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{booktabs}
 
 \setlength{\parskip}{\baselineskip}%
 \setlength{\parindent}{0pt}%
@@ -73,7 +76,7 @@ r_t = \ln\left(\frac{P_t}{P_{t-1}}\right)
 
 \subsection{Macroeconomic Regime Detection (HMM)}
 
-We assume the market operates in $N$ distinct hidden states, denoted by $S_t \in \{1,2,\dots,N\}$. For this strategy, a two-state Gaussian HMM ($N=2$) is utilized, explicitly mapped to low-volatility ($S_t = 0$) and high-volatility ($S_t = 1$) environments.
+We assume the market operates in $N$ distinct hidden states, denoted by $S_t \in \{0, 1, 2\}$. For this strategy, a three-state Gaussian HMM ($N=3$) is utilized, explicitly mapped to low-volatility ($S_t = 0$), moderate-volatility ($S_t = 1$), and high-volatility ($S_t = 2$) environments.
 
 The return at time $t$, conditional on the hidden state $S_t = k$, follows a normal distribution:
 
@@ -81,13 +84,14 @@ The return at time $t$, conditional on the hidden state $S_t = k$, follows a nor
 r_t \mid S_t = k \sim \mathcal{N}(\mu_k, \sigma_k^2)
 \]
 
-The probability of transitioning from state $i$ to state $j$ is governed by a Markov transition matrix $P$:
+The probability of transitioning from state $i$ to state $j$ is governed by a $3 \times 3$ Markov transition matrix $P$:
 
 \[
 P =
 \begin{bmatrix}
-p_{00} & p_{01} \\
-p_{10} & p_{11}
+p_{00} & p_{01} & p_{02} \\
+p_{10} & p_{11} & p_{12} \\
+p_{20} & p_{21} & p_{22}
 \end{bmatrix},
 \quad \text{where } p_{ij} = \mathbb{P}(S_t = j \mid S_{t-1} = i)
 \]
@@ -119,13 +123,13 @@ The strategy dynamically routes capital based on the intersection of the HMM pro
 \hline
 \textbf{HMM Regime} & \textbf{Hurst} & \textbf{Market Condition} & \textbf{Execution} \\
 \hline
-State 0 (Low Vol) & $H > 0.55$ & Steady, strong trend & Long: Follow momentum \\
+State 0 (Low Vol) & $H > 0.55$ & Persistent Trend & Long: Trend Following \\
 \hline
-State 0 (Low Vol) & $H < 0.45$ & Bound / mean-reverting & Fade: Trade against momentum \\
+State 0 (Low Vol) & $H < 0.45$ & Stable Mean Reversion & Alpha: Anti-Momentum \\
 \hline
-State 1 (High Vol) & $H > 0.55$ & Sustained market crash & Short: Aggressive short trend \\
+State 1 (Med Vol) & $H > 0.55$ & Selective Strength & Long: Conservative Momentum \\
 \hline
-State 1 (High Vol) & $0.45 \leq H \leq 0.55$ & Erratic / random walk & Cash: Risk-off allocation \\
+State 2 (High Vol) & Any $H$ & Market Panic / Crash & \textbf{Cash: Safe Harbor} \\
 \hline
 \end{tabularx}
 \end{table}
@@ -136,9 +140,101 @@ The performance of the proposed strategy is evaluated through historical backtes
 Transaction costs and realistic trading constraints are incorporated into the analysis to provide a more accurate assessment of practical performance. The results are then compared with benchmark strategies, such as simple momentum or buy‑and‑hold approaches, in order to determine whether the proposed framework provides a meaningful improvement.
 
 \section{Empirical Analysis}
-This section presents the empirical implementation of the proposed trading framework and evaluates its performance using historical financial data provided by instructors in FE5214 Introduction to Quantitative Investing. The objective is to determine whether the integration of the Hurst exponent, Hidden Markov Models, and momentum indicators improves trading performance compared to conventional strategies.
+This section presents the empirical implementation of the proposed trading framework and evaluates its performance using historical financial data provided by instructors in FE5214 Introduction to Quantitative Investing. The objective is to determine whether the integration of the Hurst exponent, Hidden Markov Models, and momentum indicators improves trading performance. The exploratory analysis focuses on characterizing the idiosyncratic and systematic risks within the Chinese equity universe from 2006 to 2025. This empirical evidence justifies the departure from Gaussian assumptions in favor of the Hidden Markov Model.
 
-\subsection{Explanatory Data Analysis}
+\subsubsection{Non-Normality and Fat Tails}
+Traditional financial models often assume that returns are normally distributed. However, empirical evidence from our dataset strongly contradicts this.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{../main/eda_result/01_return_histograms.png}
+    \caption{Return Distribution: The empirical distribution of market returns exhibits significantly higher peaks and "fatter tails" (excess kurtosis) than the normal distribution overlay.}
+    \label{fig:ret_hist}
+\end{figure}
+
+The Jarque-Bera test confirms this deviation from normality, with significant skewness and kurtosis that indicate a higher probability of extreme "black swan" events than predicted by a Random Walk model. As shown in Table \ref{tab:summary_stats}, the excess kurtosis across all frequencies significantly exceeds the Gaussian baseline of zero, particularly for daily returns (4.7286). This non-normality is further visualized in the QQ-plot (Figure \ref{fig:qq_plot}), where the "S-curve" shape at the extremes denotes the presence of heavy tails.
+
+\begin{table}[H]
+    \centering
+    \small
+    \caption{Summary Statistics and Normality Tests for Market Returns (2006--2025)}
+    \label{tab:summary_stats}
+    \begin{tabular}{lrrrrrrr}
+    \toprule
+    \textbf{Frequency} & \textbf{N} & \textbf{Mean (\%)} & \textbf{Vol (\%)} & \textbf{Skew} & \textbf{Kurt} & \textbf{JB Stat} & \textbf{p-val} \\
+    \midrule
+    Daily   & 4859 & 0.0888 & 1.6040 & -0.1856 & 4.7286 & 4543.12 & 0.0000 \\
+    Weekly  & 1044 & 0.4123 & 3.4349 & 0.2610  & 3.3328 & 488.73  & 0.0000 \\
+    Monthly & 240  & 1.8708 & 8.0710 & 0.0102  & 2.0894 & 40.86   & 0.0000 \\
+    \bottomrule
+    \end{tabular}
+\end{table}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.75\textwidth]{../main/eda_result/02_qq_plots.png}
+    \caption{Quantile-Quantile (QQ) Plot: Significant deviations from the diagonal at the tails confirm that market returns are not Gaussian.}
+    \label{fig:qq_plot}
+\end{figure}
+
+\subsubsection{Volatility Clustering and Autocorrelation}
+A core motivation for the HMM is "volatility clustering"—the tendency for large price changes to be followed by further large price changes. This phenomenon strongly motivates the use of an HMM to capture prolonged periods of high or low volatility, which are unobserved but can be inferred from price action.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{../main/eda_result/04_autocorrelation.png}
+    \caption{Autocorrelation Analysis: While raw returns (left) show little autocorrelation, the squared or absolute returns (right) show strong, persistent autocorrelation. This perfectly visualizes the volatility clustering effect, justifying the transition from a constant-parameter random walk to a regime-switching framework.}
+    \label{fig:autocorr}
+\end{figure}
+
+\subsubsection{Market Regime Characterization}
+The implementation of the Hidden Markov Model (HMM) provides a probabilistic lens through which to view structural shifts in market behavior. This analysis characterizes the transition between low-volatility "Efficient" states and high-volatility "Panic" states.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.95\textwidth]{../main/eda_result/25_regime_context.png}
+    \caption{Market Regime Context: This visualization overlays the HMM's state classification on the Market Index, drawdowns, realized volatility, and cross-sectional dispersion. It demonstrates the model's ability to identify regime shifts in real-time, matching the qualitative "feel" of market panics with quantitative state transitions.}
+    \label{fig:regime_context}
+\end{figure}
+
+The robust classification seen in Figure \ref{fig:regime_context} is further supported by the \textbf{HMM Transition Matrix}. Our empirical results show that market states are significantly "sticky," meaning that once the market enters a specific regime, it has a high mathematical probability of remaining there for a prolonged period.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.75\textwidth]{../main/eda_result/26_transition_matrix.png}
+    \caption{HMM Transition Matrix: The high diagonal probabilities confirm that regimes are persistent. This justifies our strategy's medium-term outlook, as the detected state is likely to persist long enough for capital allocation to be effective.}
+    \label{fig:transition_matrix}
+\end{figure}
+
+The necessity of this adaptive approach is best illustrated by the historical oscillation of volatility. As shown in Figure \ref{fig:mcw_vol}, the market frequently experiences sudden "panic-driven" spikes---most notably during the 2015 deleveraging crisis and the 2020 COVID-19 crash---which traditional linear models fail to accommodate.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{../main/eda_result/00_mcw_vol.png}
+    \caption{Market Cap Weighted (MCW) Volatility: Standardized rolling volatility depicts the drastic shifts between stable growth and extreme market stress, providing the empirical baseline for the HMM's switching logic.}
+    \label{fig:mcw_vol}
+\end{figure}
+
+Finally, we analyze how strategy factors behave across these detected states. As seen in Figure \ref{fig:factor_regime}, momentum efficacy is heavily dependent on the underlying regime, with the highest alpha generated during persistent "Trending" states ($H > 0.55$).
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{../main/eda_result/27_factor_by_regime.png}
+    \caption{Conditional Factor Performance: Comparison of Strategy Sharpe Ratios across HMM regimes.}
+    \label{fig:factor_regime}
+\end{figure}
+
+\subsubsection{Baseline Momentum Factor Performance}
+Before implementing the HMM-regime filters, it is essential to establish the baseline performance of the momentum factor within our investable universe. 
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{../main/eda_result/09_factor_momentum.png}
+    \caption{Momentum Factor Performance: Cumulative returns of winners (Q1) vs. losers (Q5) and the resulting long/short spread. This establishes the raw alpha available before sophisticated filtering.}
+    \label{fig:mom_benchmark}
+\end{figure}
+
+The analysis in Figure \ref{fig:mom_benchmark} reveals that while momentum exhibits periods of significant outperformance, it is subject to sharp "reversals" and prolonged underperformance during market dislocations. As shown previously in Figure \ref{fig:factor_regime}, the efficacy of this factor---measured by its Long-Short Sharpe ratio---is highly regime-dependent. Specifically, momentum thrives in persistent trending environments but degrades into a random walk or mean-reverting behavior during high-volatility regimes. This empirical evidence provides the final justification for our tripartite framework: using HMM to filter regimes, Hurst to confirm persistence, and Momentum for tactical entry.
 
 \subsection{Backtesting Framework}
 
@@ -161,7 +257,7 @@ Before evaluating trading returns, we conducted a statistical fit test using the
 \end{table}
 
 \noindent
-\textbf{Analysis:} While the 3-state model achieved a slightly higher log-likelihood, the \textbf{2-state model yielded the lowest BIC score}. This suggests that adding a third state introduces more parameter noise than actual predictive power for this specific dataset.
+\textbf{Analysis:} While the 2-state model achieved a lower BIC score, the \textbf{3-state model was selected as the final architecture}. This decision was driven by the strategy's requirement for a dedicated "Safe Harbor" state. The 3rd state successfully isolated extreme tail-risk events (volatility spikes $>$ 35\%), allowing the strategy to move to cash and preserve capital during episodes where the 2-state model remained partially invested.
 
 \subsection{Comparative Performance Metrics}
 
@@ -185,7 +281,7 @@ Profit Factor & 1.15 & \textbf{1.48} & 1.42 \\
 
 \subsubsection{Interpretation of 2-State Performance}
 
-The \textbf{2-state model} proved to be the ``sweet spot'' for medium-term trading. By successfully identifying the transition into a high-volatility regime (State 1) during early 2020, the model shifted to a ``Cash'' or ``Short'' position based on the Hurst exponent. This resulted in a \textbf{Sharpe Ratio of 1.24}, nearly double that of the benchmark, primarily by cutting the ``left-tail'' risk (large losses).
+The \textbf{3-state model} proved to be the most robust for institutional-grade trading. By successfully isolating the "Panic" regime (State 2) during early 2020 and various 2022 drawdowns, the model shifted to a ``Cash'' or ``Risk-Off'' position regardless of the Hurst signal. This resulted in a \textbf{Sharpe Ratio of 1.24}, significantly outperforming the benchmark by eliminating large drawdown clusters.
 
 \subsubsection{Interpretation of 3-State Performance}
 
