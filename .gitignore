@@ -27,3 +27,6 @@ output_*/
 # Python Bytecode
 *.pyc
 __pycache__/
+*.aux
+*.log
+*.gz

@@ -8,6 +8,8 @@
 \usepackage{graphicx}
 \usepackage{float}
 \usepackage{booktabs}
+\usepackage[backend=biber,style=numeric]{biblatex}
+\addbibresource{references.bib}
 
 \setlength{\parskip}{\baselineskip}%
 \setlength{\parindent}{0pt}%
@@ -34,7 +36,7 @@ Financial markets are inherently dynamic systems characterized by periods of sta
 
 Traditional financial models frequently assume that asset returns follow stationary stochastic processes with constant parameters. However, empirical evidence suggests that financial time series often display non‑stationarity, volatility clustering, and varying degrees of persistence, which undermine the assumptions of many classical models. Consequently, adaptive trading strategies that respond to evolving market dynamics have become an important area of research in quantitative finance.
 
-One important concept for characterizing financial market behavior is the Hurst exponent, a statistical measure used to quantify the long‑term memory properties of time series. The Hurst exponent provides insight into whether a series exhibits persistence, anti‑persistence, or random behavior. Values of the Hurst exponent greater than 0.5 indicate persistent behavior and trending dynamics, while values below 0.5 suggest mean‑reverting behavior. Values close to 0.5 are consistent with a random walk process, which aligns with the weak form of the Efficient Market Hypothesis. Because different trading strategies perform better under different market behaviors, the Hurst exponent offers a potentially valuable tool for identifying favorable trading environments.
+One important concept for characterizing financial market behavior is the Hurst exponent, a statistical measure used to quantify the long‑term memory properties of time series. The Hurst exponent provides insight into whether a series exhibits persistence, anti‑persistence, or random behavior. Values of the Hurst exponent greater than 0.5 indicate persistent behavior and trending dynamics, while values below 0.5 suggest mean‑reverting behavior. Values close to 0.5 are consistent with a random walk process, which aligns with the weak form of the Efficient Market Hypothesis. Because different trading strategies perform better under different market behaviors, the Hurst exponent offers a potentially valuable tool for identifying favorable trading environments  \cite{dudia2020} \cite{marton2022}.
 
 In parallel, regime‑switching models have gained prominence as a means of capturing structural changes in financial markets. Among these, the Hidden Markov Model (HMM) has been widely used to model time series that transition between unobserved states, such as high‑ and low‑volatility regimes. HMMs are particularly attractive because they allow for probabilistic inference regarding the underlying regime and provide a systematic framework for detecting shifts in market conditions.
 
@@ -393,5 +395,18 @@ This paper presents a theoretical and empirical framework that bridges the gap b
 
 Future research could expand this framework from a time-series application (single asset) to a cross-sectional application (multi-asset portfolios). Specifically, calculating the Hurst exponent across an entire equities universe to construct a Smart Momentum Factor—going long only on assets exhibiting both high relative momentum and a Hurst exponent $>$ 0.55 — represents a promising frontier for multifactor quantitative modeling.
 
+\renewcommand{\refname}{Works Cited} % Renames "References" to "Works Cited"
+\begin{thebibliography}{9}
+
+    % Adding standard spacing between entries
+    \setlength{\itemsep}{1em} 
+
+    \bibitem{marton2022}
+    Marton, Bence, and Hasan Cakir. "Usage of the Hurst Exponent for Short Term Trading Strategies." \textit{SSRN}, 1 Dec. 2022, \url{https://doi.org/10.2139/ssrn.4290787}.
+    
+    \bibitem{dudia2020}
+    Dudia, Ashwin, et al. "Short Term Trading Model for Asian Equity Index Futures -- Using Hurst Exponent." \textit{SSRN}, 23 Feb. 2020, \url{https://doi.org/10.2139/ssrn.3543079}.
+
+\end{thebibliography}
 
 \end{document}
