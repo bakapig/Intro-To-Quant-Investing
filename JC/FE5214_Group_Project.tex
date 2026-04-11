@@ -7,6 +7,9 @@
 \usepackage{tabularx}
 \usepackage{graphicx}
 \usepackage{float}
+\usepackage{booktabs}
+\usepackage[backend=biber,style=numeric]{biblatex}
+\addbibresource{references.bib}
 
 \setlength{\parskip}{\baselineskip}%
 \setlength{\parindent}{0pt}%
@@ -33,7 +36,7 @@ Financial markets are inherently dynamic systems characterized by periods of sta
 
 Traditional financial models frequently assume that asset returns follow stationary stochastic processes with constant parameters. However, empirical evidence suggests that financial time series often display non‑stationarity, volatility clustering, and varying degrees of persistence, which undermine the assumptions of many classical models. Consequently, adaptive trading strategies that respond to evolving market dynamics have become an important area of research in quantitative finance.
 
-One important concept for characterizing financial market behavior is the Hurst exponent, a statistical measure used to quantify the long‑term memory properties of time series. The Hurst exponent provides insight into whether a series exhibits persistence, anti‑persistence, or random behavior. Values of the Hurst exponent greater than 0.5 indicate persistent behavior and trending dynamics, while values below 0.5 suggest mean‑reverting behavior. Values close to 0.5 are consistent with a random walk process, which aligns with the weak form of the Efficient Market Hypothesis. Because different trading strategies perform better under different market behaviors, the Hurst exponent offers a potentially valuable tool for identifying favorable trading environments.
+One important concept for characterizing financial market behavior is the Hurst exponent, a statistical measure used to quantify the long‑term memory properties of time series. The Hurst exponent provides insight into whether a series exhibits persistence, anti‑persistence, or random behavior. Values of the Hurst exponent greater than 0.5 indicate persistent behavior and trending dynamics, while values below 0.5 suggest mean‑reverting behavior. Values close to 0.5 are consistent with a random walk process, which aligns with the weak form of the Efficient Market Hypothesis. Because different trading strategies perform better under different market behaviors, the Hurst exponent offers a potentially valuable tool for identifying favorable trading environments  \cite{dudia2020} \cite{marton2022}.
 
 In parallel, regime‑switching models have gained prominence as a means of capturing structural changes in financial markets. Among these, the Hidden Markov Model (HMM) has been widely used to model time series that transition between unobserved states, such as high‑ and low‑volatility regimes. HMMs are particularly attractive because they allow for probabilistic inference regarding the underlying regime and provide a systematic framework for detecting shifts in market conditions.
 
@@ -63,9 +66,9 @@ Despite these advances, relatively few studies have attempted to integrate long�
 The present study seeks to address this gap by combining Hurst exponent analysis with Hidden Markov Models and momentum indicators in order to design a regime‑adaptive trading strategy. By incorporating both statistical measures of persistence and probabilistic regime classification, the proposed framework aims to provide a more comprehensive representation of market dynamics.
 
 \section{Methodology}
-This section details the sequential pipeline used to estimate market states, calculate long-memory, and generate trading signals.
+This section details the sequential pipeline used to estimate market states, calculate long-memory, and generate trading signals. We introduce a hierarchical trading framework that sequentially integrates cross-sectional data normalization, macroeconomic regime detection, microstructural long-memory estimation, and tactical momentum signals. The pipeline operates on a daily frequency, processing individual equities to form a market-cap-weighted portfolio dynamically adjusted for prevailing market conditions.
 
-\subsection{Data Specification and Preprocessing}
+\subsection{Cross-Sectional Sector Neutralization}
 
 The model analyzes daily asset prices, $P_t$. To satisfy the continuous compounding and normality assumptions required by the Gaussian HMM, prices are transformed into log returns, $r_t$:
 
@@ -73,69 +76,69 @@ The model analyzes daily asset prices, $P_t$. To satisfy the continuous compound
 r_t = \ln\left(\frac{P_t}{P_{t-1}}\right)
 \]
 
+To ensure that our regime-switching model isolates idiosyncratic and broad market structural shifts rather than transient sector rotations, we begin by neutralizing the log returns. For a given asset $i$ belonging to sector $S$ at time $t$, the log return $r_{i,t}$ is transformed into a sector-neutral return $\tilde{r}_{i,t}$: $$ \tilde{r}_{i,t} = r_{i,t} - \frac{1}{|S|} \sum_{j \in S} r_{j,t} $$ This demeaned return $\tilde{r}_{i,t}$ serves as the foundational input for the Hidden Markov Model, preventing sector-specific shocks from prematurely triggering a broader market regime shift in the model's classifications.
+
 \subsection{Macroeconomic Regime Detection (HMM)}
+We model the latent market environment using a discrete-time Gaussian Hidden Markov Model (HMM). We assume the market operates in a finite set of unobservable states $S_t \in {0, 1, \dots, N-1}$, where $N$ is predefined (either 2 or 3 for finance regimes). Conditional on the latent state, the sector-neutral returns are assumed to be normally distributed: $$ \tilde{r}_t | S_t = k \sim \mathcal{N}(\mu_k, \sigma_k^2) $$ The transitions between states are governed by a constant $N \times N$ transition probability matrix.
 
-We assume the market operates in $N$ distinct hidden states, denoted by $S_t \in \{1,2,\dots,N\}$. For this strategy, a two-state Gaussian HMM ($N=2$) is utilized, explicitly mapped to low-volatility ($S_t = 0$) and high-volatility ($S_t = 1$) environments.
+To evaluate the optimal number of states without overfitting, we compute the Bayesian Information Criterion (BIC) during the model fitting phase: $$ \text{BIC} = k \ln(T) - 2 \ln(\mathcal{L}) $$ where $\mathcal{L}$ is the maximized log-likelihood of the HMM, $T$ is the number of observations, and $k = N^2 + 2N - 1$ represents the number of estimated parameters.
 
-The return at time $t$, conditional on the hidden state $S_t = k$, follows a normal distribution:
+As HMMs suffer from label switching (the assigned integer state is arbitrary), we deterministically map the hidden states to real-world regimes by sorting them according to their estimated variance $\sigma_k^2$. State $0$ consistently corresponds to the lowest volatility regime ("Steady Bull/Growth"), while State $N-1$ corresponds to the highest volatility regime ("Market Crash/Panic").
 
-\[
-r_t \mid S_t = k \sim \mathcal{N}(\mu_k, \sigma_k^2)
-\]
+\subsection{Microstructural Long-Memory Estimation (MFDFA)}
 
-The probability of transitioning from state $i$ to state $j$ is governed by a Markov transition matrix $P$:
+To capture the local trend persistence or mean-reverting nature of an asset, we calculate a rolling Generalized Hurst Exponent, $H(q)$, using Multifractal Detrended Fluctuation Analysis (MFDFA). We set $q=2$, making it asymptotically equivalent to the standard Hurst exponent.
 
-\[
-P =
-\begin{bmatrix}
-p_{00} & p_{01} \\
-p_{10} & p_{11}
-\end{bmatrix},
-\quad \text{where } p_{ij} = \mathbb{P}(S_t = j \mid S_{t-1} = i)
-\]
+For a rolling window of length $W$, the return profile $Y(j) = \sum_{i=1}^j (r_i - \bar{r})$ is divided into non-overlapping segments of length $s$. Within each segment, a local linear trend is fitted. Due to the intensive computational requirements of rolling regressions across a wide equity universe, we utilize optimized JIT-compiled (Numba) linear algebra to extract the residuals $\epsilon(i)$.
 
-\subsection{Microstructural Trend Estimation (Hurst Exponent)}
+The second-order fluctuation function $F_2(s)$ is computed as the root-mean-square of the variance of these residuals: $$ F_2(s) = \left( \frac{1}{M} \sum_{m=1}^{M} \text{Var}_m(s) \right)^{\frac{1}{2}} $$ where $M$ is the number of segments. The Hurst exponent $H$ is then extracted via ordinary least squares regression on the log-log scale: $$ \ln F_2(s) \approx H \ln(s) + C $$
 
-To determine localized market behavior, we calculate the rolling Hurst exponent, $H$, over a lookback window of $T$ periods (e.g., 100 days). The formulation scales according to the power law:
+\subsection{Tactical Momentum and Signal Integration}
+The final trading signal $\theta_t \in \{-1, 0, 1\}$ is generated through a strict gating mechanism that intersects the Macro Regime ($S_t$), Microstructural Hurst Exponent ($H_t$), and Tactical Momentum ($M_t$), where $M_t$ is defined as the $n$-period simple return.
 
-\[
-\mathbb{E}\left[\frac{R(\tau)}{S(\tau)}\right] = C \tau^H
-\]
+The strategy implements the following rule set based on defined thresholds ($H_{\text{upper}}$ for strong persistence, $H_{\text{lower}}$ for strong anti-persistence):
 
-where $R(\tau)$ is the range of cumulative deviations from the mean, $S(\tau)$ is the standard deviation, and $C$ is a constant. The value of $H$ is interpreted mathematically as:
-
+\paragraph{State 0 (Low Volatility - Risk On)}
 \begin{itemize}
-    \item $0 \leq H < 0.45$: Anti-persistent (Mean-reverting)
-    \item $0.45 \leq H \leq 0.55$: Brownian motion (Random walk / Noise)
-    \item $0.55 < H \leq 1.0$: Persistent (Structural trend)
+    \item \textbf{Trend Following:} If $H_t > H_{\text{upper}}$ and $M_t > 0$, initiate a long position:
+    \[
+    \theta_t = 1.
+    \]
+    \item \textbf{Mean Reversion:} If $H_t < H_{\text{lower}}$, trade against the momentum:
+    \[
+    \theta_t = -\operatorname{sign}(M_t).
+    \]
 \end{itemize}
 
-\subsection{Integrated Strategy Architecture}
+\paragraph{State 1 (Medium Volatility, assuming $N=3$)}
+\begin{itemize}
+    \item \textbf{Strict Trend Following:} If $H_t > H_{\text{upper}}$ and $M_t > 0$, initiate a long position:
+    \[
+    \theta_t = 1.
+    \]
+    \item Mean-reverting behavior is ignored due to elevated volatility.
+\end{itemize}
 
-The strategy dynamically routes capital based on the intersection of the HMM probability, the Hurst exponent, and a standard medium-term momentum signal (Mom).
+\paragraph{State $N-1$ (High Volatility - Safe Harbor)}
+\begin{itemize}
+    \item Regardless of microstructural signals, all positions are liquidated to cash:
+    \[
+    \theta_t = 0.
+    \]
+\end{itemize}
 
-\begin{table}[h!]
-\centering
-\small
-\begin{tabularx}{\textwidth}{|l|l|X|X|}
-\hline
-\textbf{HMM Regime} & \textbf{Hurst} & \textbf{Market Condition} & \textbf{Execution} \\
-\hline
-State 0 (Low Vol) & $H > 0.55$ & Steady, strong trend & Long: Follow momentum \\
-\hline
-State 0 (Low Vol) & $H < 0.45$ & Bound / mean-reverting & Fade: Trade against momentum \\
-\hline
-State 1 (High Vol) & $H > 0.55$ & Sustained market crash & Short: Aggressive short trend \\
-\hline
-State 1 (High Vol) & $0.45 \leq H \leq 0.55$ & Erratic / random walk & Cash: Risk-off allocation \\
-\hline
-\end{tabularx}
-\end{table}
+To minimize transaction costs and prevent signal whipsaw, a temporal stability filter is applied. A generated signal $\theta_t$ is only enacted if the underlying logic has recommended the exact same state for $D$ consecutive days. Formally, let $\tilde{\theta}_t$ denote the raw signal. The stabilized signal is defined as:
+\[
+\theta_t =
+\begin{cases}
+\tilde{\theta}_t, & \text{if } \max_{0 \leq k < D} \tilde{\theta}_{t-k} = \min_{0 \leq k < D} \tilde{\theta}_{t-k}, \\
+0, & \text{otherwise.}
+\end{cases}
+\]
 
-\subsection{Strategy Evaluation}
-The performance of the proposed strategy is evaluated through historical backtesting. Key performance metrics include cumulative returns, Sharpe ratio, maximum drawdown, and volatility. To ensure robustness, the strategy is tested across different parameter settings.
+\subsection{Conditional Risk Forecasting (EWMA VaR)}
+For downstream portfolio risk parity weighting (Inverse VaR), we concurrently calculate a 1-day 99\% Value at Risk (VaR) using an Exponentially Weighted Moving Average (EWMA) volatility model. Aligning with the RiskMetrics standard, we apply a decay factor of $\lambda = 0.94$: $$ \sigma_t^2 = (1 - \lambda) (r_{t-1} - \bar{r})^2 + \lambda \sigma_{t-1}^2 $$ The 99\% VaR is forecasted as: $$ \text{VaR}_{t} = 1.645 \cdot \sigma_t $$ This permits the strategy to dynamically scale position sizes inversely to their immediate downside risk before execution.
 
-Transaction costs and realistic trading constraints are incorporated into the analysis to provide a more accurate assessment of practical performance. The results are then compared with benchmark strategies, such as simple momentum or buy‑and‑hold approaches, in order to determine whether the proposed framework provides a meaningful improvement.
 
 \section{Empirical Analysis}
 This section presents the empirical implementation of the proposed trading framework and evaluates its performance using historical financial data provided by instructors in FE5214 Introduction to Quantitative Investing. The objective is to determine whether the integration of the Hurst exponent, Hidden Markov Models, and momentum indicators improves trading performance. The exploratory analysis focuses on characterizing the idiosyncratic and systematic risks within the Chinese equity universe from 2006 to 2025. This empirical evidence justifies the departure from Gaussian assumptions in favor of the Hidden Markov Model.
@@ -147,108 +150,244 @@ Traditional financial models often assume that returns are normally distributed.
     \centering
     \includegraphics[width=0.9\textwidth]{../main/eda_result/01_return_histograms.png}
     \caption{Return Distribution: The empirical distribution of market returns exhibits significantly higher peaks and "fatter tails" (excess kurtosis) than the normal distribution overlay.}
+    \label{fig:ret_hist}
 \end{figure}
 
-The Jarque-Bera test confirms this deviation from normality, with significant skewness and kurtosis that indicate a higher probability of extreme "black swan" events than predicted by a Random Walk model. This non-normality is further visualized in the QQ-plot (Figure 5), where the "S-curve" shape at the extremes denotes the presence of heavy tails.
+The Jarque-Bera test confirms this deviation from normality, with significant skewness and kurtosis that indicate a higher probability of extreme "black swan" events than predicted by a Random Walk model. As shown in Table~\ref{tab:summary_stats}, the excess kurtosis across all frequencies significantly exceeds the Gaussian baseline of zero, particularly for daily returns (4.7286). This non-normality is further visualized in the QQ-plot (Figure~\ref{fig:qq_plot}), where the "S-curve" shape at the extremes denotes the presence of heavy tails.
+
+\begin{table}[H]
+    \centering
+    \small
+    \caption{Summary Statistics and Normality Tests for Market Returns (2006--2025)}
+    \label{tab:summary_stats}
+    \begin{tabular}{lrrrrrrr}
+    \toprule
+    \textbf{Frequency} & \textbf{N} & \textbf{Mean (\%)} & \textbf{Vol (\%)} & \textbf{Skew} & \textbf{Kurt} & \textbf{JB Stat} & \textbf{p-val} \\
+    \midrule
+    Daily   & 4859 & 0.0888 & 1.6040 & -0.1856 & 4.7286 & 4543.12 & 0.0000 \\
+    Weekly  & 1044 & 0.4123 & 3.4349 & 0.2610  & 3.3328 & 488.73  & 0.0000 \\
+    Monthly & 240  & 1.8708 & 8.0710 & 0.0102  & 2.0894 & 40.86   & 0.0000 \\
+    \bottomrule
+    \end{tabular}
+\end{table}
 
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.75\textwidth]{../main/eda_result/02_qq_plots.png}
     \caption{Quantile-Quantile (QQ) Plot: Significant deviations from the diagonal at the tails confirm that market returns are not Gaussian.}
+    \label{fig:qq_plot}
 \end{figure}
 
 \subsubsection{Volatility Clustering and Autocorrelation}
-A core motivation for the HMM is "volatility clustering"—the tendency for large price changes to be followed by further large price changes.
+A core motivation for the HMM is "volatility clustering"—the tendency for large price changes to be followed by further large price changes. This phenomenon strongly motivates the use of an HMM to capture prolonged periods of high or low volatility, which are unobserved but can be inferred from price action.
 
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.9\textwidth]{../main/eda_result/04_autocorrelation.png}
-    \caption{Autocorrelation Analysis: While raw returns (left) show little autocorrelation, the squared or absolute returns (right) show strong, persistent autocorrelation. This proves that volatility is not constant and exists in "regimes."}
+    \caption{Autocorrelation Analysis: While raw returns (left) show little autocorrelation, the squared or absolute returns (right) show strong, persistent autocorrelation. This perfectly visualizes the volatility clustering effect, justifying the transition from a constant-parameter random walk to a regime-switching framework.}
+    \label{fig:autocorr}
 \end{figure}
 
 \subsubsection{Market Regime Characterization}
-Using the evidence of volatility clustering, we trained an HMM to categorize the market into distinct states.
+The implementation of the Hidden Markov Model (HMM) provides a probabilistic lens through which to view structural shifts in market behavior. This analysis characterizes the transition between low-volatility "Efficient" states and high-volatility "Panic" states.
 
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.95\textwidth]{../main/eda_result/25_regime_context.png}
-    \caption{Market Regime Context: Overlays of HMM states on the Market Index and realized volatility. The model captures structural shifts in market behavior that simple moving averages often miss.}
+    \caption{Market Regime Context: This visualization overlays the HMM's state classification on the Market Index, drawdowns, realized volatility, and cross-sectional dispersion. It demonstrates the model's ability to identify regime shifts in real-time, matching the qualitative "feel" of market panics with quantitative state transitions.}
+    \label{fig:regime_context}
 \end{figure}
+
+The robust classification seen in Figure \ref{fig:regime_context} is further supported by the \textbf{HMM Transition Matrix}. Our empirical results show that market states are significantly "sticky," meaning that once the market enters a specific regime, it has a high mathematical probability of remaining there for a prolonged period.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.75\textwidth]{../main/eda_result/26_transition_matrix.png}
+    \caption{HMM Transition Matrix: The high diagonal probabilities confirm that regimes are persistent. This justifies our strategy's medium-term outlook, as the detected state is likely to persist long enough for capital allocation to be effective.}
+    \label{fig:transition_matrix}
+\end{figure}
+
+The necessity of this adaptive approach is best illustrated by the historical oscillation of volatility. As shown in Figure \ref{fig:mcw_vol}, the market frequently experiences sudden "panic-driven" spikes---most notably during the 2015 deleveraging crisis and the 2020 COVID-19 crash---which traditional linear models fail to accommodate.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{../main/eda_result/00_mcw_vol.png}
+    \caption{Market Cap Weighted (MCW) Volatility: Standardized rolling volatility depicts the drastic shifts between stable growth and extreme market stress, providing the empirical baseline for the HMM's switching logic.}
+    \label{fig:mcw_vol}
+\end{figure}
+
+Finally, we analyze how strategy factors behave across these detected states. As seen in Figure \ref{fig:factor_regime}, momentum efficacy is heavily dependent on the underlying regime, with the highest alpha generated during persistent "Trending" states ($H > 0.55$).
 
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.8\textwidth]{../main/eda_result/27_factor_by_regime.png}
-    \caption{Conditional Factor Performance: Momentum performance varies drastically by state, reaching its highest efficacy during the "Trending" regime.}
+    \caption{Conditional Factor Performance: Comparison of Strategy Sharpe Ratios across HMM regimes.}
+    \label{fig:factor_regime}
 \end{figure}
+
+\subsubsection{Baseline Momentum Factor Performance}
+Before implementing the HMM-regime filters, it is essential to establish the baseline performance of the momentum factor within our investable universe. 
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{../main/eda_result/09_factor_momentum.png}
+    \caption{Momentum Factor Performance: Cumulative returns of winners (Q1) vs. losers (Q5) and the resulting long/short spread. This establishes the raw alpha available before sophisticated filtering.}
+    \label{fig:mom_benchmark}
+\end{figure}
+
+The analysis in Figure \ref{fig:mom_benchmark} reveals that while momentum exhibits periods of significant outperformance, it is subject to sharp "reversals" and prolonged underperformance during market dislocations. As shown previously in Figure \ref{fig:factor_regime}, the efficacy of this factor---measured by its Long-Short Sharpe ratio---is highly regime-dependent. Specifically, momentum thrives in persistent trending environments but degrades into a random walk or mean-reverting behavior during high-volatility regimes. This empirical evidence provides the final justification for our tripartite framework: using HMM to filter regimes, Hurst to confirm persistence, and Momentum for tactical entry.
+
+\subsubsection{Survivorship Bias and Universe Dynamics}
+A common pitfall in quantitative backtesting is survivorship bias, where the exclusion of delisted or failed companies artificially inflates strategy returns. To ensure the robustness of this study, we explicitly track the entry and exit of tickers within our universe.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{../main/eda_result/28_universe_dynamics.png}
+    \caption{Universe Dynamics: The evolution of the investable universe size alongside annual entries (new listings) and exits (delistings). This confirms that our methodology accounts for the time-varying nature of the market pool.}
+    \label{fig:univ_dynamics}
+\end{figure}
+
+To quantify the impact of survivorship, we compared the performance of our full investable universe against a "Survivors Only" subset (stocks that existed throughout the entire period). 
+
+\begin{table}[H]
+    \centering
+    \small
+    \caption{Survivorship Bias Impact (2006--2025)}
+    \label{tab:survivorship}
+    \begin{tabular}{lcccc}
+    \toprule
+    \textbf{Portfolio Type} & \textbf{Ann. Ret} & \textbf{Ann. Vol} & \textbf{Sharpe} & \textbf{Growth} \\
+    \midrule
+    Full Universe (EW)      & 0.144 & 0.266 & 0.539 & 8.0x \\
+    Survivors Only (EW)     & 0.210 & 0.249 & 0.842 & 31.2x \\
+    \midrule
+    Full Universe (MCW)     & 0.196 & 0.235 & 0.835 & 25.8x \\
+    Survivors Only (MCW)    & 0.224 & 0.255 & 0.879 & 39.9x \\
+    \bottomrule
+    \end{tabular}
+\end{table}
+
+\subsection{Strategy Evaluation}
+The performance of the proposed strategy is evaluated through historical backtesting. Key performance metrics include cumulative returns, Sharpe ratio, maximum drawdown, and volatility. To ensure robustness, the strategy is tested across different parameter settings.
+
+Transaction costs and realistic trading constraints are incorporated into the analysis to provide a more accurate assessment of practical performance. The results are then compared with benchmark strategies, such as simple momentum or buy‑and‑hold approaches, in order to determine whether the proposed framework provides a meaningful improvement.
+
+\section{Empirical Analysis}
+This section presents the empirical implementation of the proposed trading framework and evaluates its performance using historical financial data provided by instructors in FE5214 Introduction to Quantitative Investing. The objective is to determine whether the integration of the Hurst exponent, Hidden Markov Models, and momentum indicators improves trading performance compared to conventional strategies.
+
+\subsection{Explanatory Data Analysis}
 
 \subsection{Backtesting Framework}
 
-\section{Results}
-In this section, we evaluate the performance of the proposed HMM-Hurst-Momentum strategy. We compare two specific configurations—a parsimonious 2-state model and a granular 3-state model—against a passive Buy-and-Hold (B\&H) benchmark.
+To rigorously evaluate the empirical viability of the HMM-Hurst-Momentum strategy, we developed an event-driven historical simulation engine. Unlike standard vectorized backtests, which often implicitly assume frictionless execution and fractional shares, our framework strictly enforces temporal causality and market microstructural constraints to prevent look-ahead bias and accurately reflect live trading conditions.
 
-Before evaluating trading returns, we conducted a statistical fit test using the \textbf{Bayesian Information Criterion (BIC)}. The BIC penalizes model complexity to prevent overfitting.
+\subsubsection{Portfolio Weighting Schemas}
+The translation of a discrete trading signal $S_{i,t} \in \{-1, 0, 1\}$ into an actionable target portfolio weight $w_{i,t}$ is a critical determinant of strategy performance. The framework supports multiple weighting schemas:
 
-\begin{table}[h!]
-\centering
-\small
-\begin{tabularx}{0.8\textwidth}{|X|c|c|}
-\hline
-\textbf{Model} & \textbf{Log-Likelihood} & \textbf{BIC} \\
-\hline
-2-State HMM & 8,452.1 & \textbf{-16,842.3} \\
-3-State HMM & 8,498.4 & -16,810.1 \\
-\hline
-\end{tabularx}
-\end{table}
+\begin{enumerate}
+    \item \textbf{Market-Capitalization Weighting (Standard):} Capital is allocated proportionally to the lagged market capitalization of the assets generating active signals. A survivorship-bias-free constituent mask is applied daily to ensure only assets within the tradable universe at time $t$ are considered.
+    
+    \item \textbf{Inverse Volatility (VaR Parity):} To achieve a constant risk budget, target weights are determined inversely to their forecasted downside risk. Using the 1-day 99\% EWMA Value-at-Risk ($\text{VaR}_{i,t}$), the weight is defined as:
+    $$ w_{i,t} = S_{i,t} \left( \frac{\text{Target Risk}}{\text{VaR}_{i,t-1}} \right) $$
+    where the Target Risk budget is capped to prevent portfolio leverage from exceeding 1.0.
+\end{enumerate}
 
-\noindent
-\textbf{Analysis:} While the 3-state model achieved a slightly higher log-likelihood, the \textbf{2-state model yielded the lowest BIC score}. This suggests that adding a third state introduces more parameter noise than actual predictive power for this specific dataset.
-
-\subsection{Comparative Performance Metrics}
-
-We backtested the strategy from \textbf{2006 to 2025}, a period encompassing steady bull markets, the 2018 volatility spike, and the 2020 COVID-19 crash.
-
-\begin{table}[h!]
-\centering
-\small
-\begin{tabularx}{\textwidth}{|X|c|c|c|}
-\hline
-\textbf{Metric} & \textbf{B\&H} & \textbf{2-State} & \textbf{3-State} \\
-\hline
-CAGR (\%) & 12.4\% & \textbf{15.1\%} & 13.8\% \\
-Ann. Vol & 17.2\% & 11.4\% & \textbf{10.9\%} \\
-Sharpe & 0.68 & \textbf{1.24} & 1.18 \\
-Max DD & -33.7\% & \textbf{-14.2\%} & -12.1\% \\
-Profit Factor & 1.15 & \textbf{1.48} & 1.42 \\
-\hline
-\end{tabularx}
-\end{table}
-
-\subsubsection{Interpretation of 2-State Performance}
-
-The \textbf{2-state model} proved to be the ``sweet spot'' for medium-term trading. By successfully identifying the transition into a high-volatility regime (State 1) during early 2020, the model shifted to a ``Cash'' or ``Short'' position based on the Hurst exponent. This resulted in a \textbf{Sharpe Ratio of 1.24}, nearly double that of the benchmark, primarily by cutting the ``left-tail'' risk (large losses).
-
-\subsubsection{Interpretation of 3-State Performance}
-
-The \textbf{3-state model} offered the lowest volatility and the smallest Maximum Drawdown (-12.1\%). However, it suffered from \textbf{``Signal Whipsaw''}. The third state often captured ``choppy'' or sideways markets. While this protected capital, it also caused the strategy to exit positions too early during minor pullbacks in a healthy trend, resulting in lower overall CAGR (13.8\%) compared to the 2-state version.
-
-\subsection{Regime Analysis: Hurst Exponent vs. HMM}
-
-A key finding of this research is the interaction between the HMM state and the Hurst Exponent ($H$):
+\subsubsection{Microstructural Constraints and Frictions}
+To ensure the backtest reflects the realities of the Chinese A-share market, specific execution frictions and constraints were hard-coded into the trading simulator:
 
 \begin{itemize}
-    \item \textbf{State 0 (Low Vol) + $H > 0.55$:} This combination was the primary engine of alpha. It represented periods of ``Rational Exuberance'' where momentum was structurally persistent.
-    
-    \item \textbf{State 1 (High Vol) + $H < 0.45$:} During these periods, price action was mean-reverting and chaotic. The strategy correctly identified these as ``untradable'' and moved to cash, successfully avoiding the bulk of the 2022 bear market.
+    \item \textbf{Transaction Costs and Stamp Duty:} We impose an asymmetric cost structure mirroring standard Chinese brokerage accounts. Executed buy orders incur a 0.03\% fee (comprising broker commission and transfer fees). Sell orders incur a higher 0.08\% fee, accounting for the mandated 0.05\% regulatory stamp duty alongside standard commissions.
+    \item \textbf{Board Lot Discretization:} The engine restricts order sizing to integer multiples of standard ``board lots'' (100 shares). Fractional share execution is explicitly prohibited:
+    $$ \text{Shares}_{i,t} = 100 \times \left\lfloor \frac{w_{i,t} \times \text{Portfolio Value}_{t}}{100 \times P_{i,t}} \right\rfloor $$
+    \item \textbf{Turnover Suppression (Drift Tolerance):} To mitigate the erosion of alpha through micro-transaction spam, the engine enforces a 5\% drift tolerance. Rebalancing trades are only triggered if the target position size deviates from the current holdings by more than 5\%.
 \end{itemize}
 
+\subsubsection{Tactical Risk Management (Elder Rules)}
+To test the impact of strict capital preservation heuristics, an optional risk-gating module based on Dr. Alexander Elder’s trading frameworks was integrated into the execution logic:
+\begin{enumerate}
+    \item \textbf{The 2\% Rule:} The maximum gross exposure permitted for any single equity is strictly capped at 2\% of total portfolio equity, forcing diversification regardless of signal strength.
+    \item \textbf{The 6\% Rule (Monthly Circuit Breaker):} The portfolio's high-water mark is sampled at the start of each calendar month. If the aggregate equity suffers a drawdown exceeding 6\% within that month, a trading halt is triggered, and no new positions are initiated until the subsequent month.
+\end{enumerate}
 
-\section{Discussion}
+By combining an event-driven architecture with rigorous localized constraints, this framework provides a highly conservative baseline for the strategy's theoretical Compound Annual Growth Rate (CAGR) and Sharpe Ratio.
+
+\section{Results}
+To evaluate the practical viability of the proposed regime-switching architecture, we simulated the execution of the 3-state Hidden Markov Model combined with a 200-day Hurst window and 21-day momentum signal ($H=200, N=3, M=21$). The initial portfolio was seeded with \$100,000,000, and transaction costs were strictly modeled to reflect Chinese A-share commission structures. 
+
+Because naive signal generation often ignores the realities of capital concentration and volatility drag, we tested three distinct execution variants of the HMM-Hurst strategy against a Market-Cap Weighted Benchmark:
+\begin{enumerate}
+    \item \textbf{Standard HMM:} Capital is allocated dynamically based on market-cap weights but restricted only to assets generating active "Long" or "Short" signals.
+    \item \textbf{HMM + Elder Rules:} The standard strategy augmented with strict risk-gating. No single asset exceeds a 2\% portfolio allocation, and trading is halted for a month if the portfolio breaches a 6\% monthly drawdown limit.
+    \item \textbf{HMM + VaR Parity:} Capital is allocated using an inverse Value-at-Risk (Risk Parity) framework. Position sizes are dynamically scaled inversely to their 1-day 99\% EWMA GARCH volatility forecast, targeting a constant risk budget.
+\end{enumerate}
+
+The backtest was conducted using data between 2020 and 2025, and the execution metrics are summarized in Table~\ref{tab:execution_results}.
+
+\begin{table}[h!]
+\centering
+\small
+\begin{tabularx}{\textwidth}{|X|r|c|c|c|c|}
+\hline
+\textbf{Execution Strategy} & \textbf{Final Value (\$)} & \textbf{Trades} & \textbf{Win Rate} & \textbf{Max DD} & \textbf{Sharpe} \\
+\hline
+Buy \& Hold Benchmark & 104,254,479 & 189 & 15.3\% & -33.08\% & -0.03 \\
+\hline
+Standard HMM & 106,734,053 & 3,576 & 51.0\% & -63.99\% & -0.14 \\
+\hline
+HMM + Elder Rules & 110,487,111 & 3,574 & 51.5\% & -18.72\% & -0.01 \\
+\hline
+HMM + VaR Parity & \textbf{140,811,506} & 3,590 & \textbf{51.6\%} & \textbf{-25.32\%} & \textbf{0.59} \\
+\hline
+\end{tabularx}
+\caption{Comparative performance of strategy variants.}
+\label{tab:execution_results}
+\end{table}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\linewidth]{../main/backtest_result/Return_over_time.png}
+    \caption{Cumulative Return Performance across Strategies (until 2025)}
+    \label{fig:return_over_time}
+\end{figure}
+
+The Figure~\ref{fig:return_over_time} highlight clear differences in return generation, risk exposure, and trading behavior. The HMM + VaR Parity strategy consistently outperforms the rest, particularly from 2015 onwards. Its performance accelerates after 2018, culminating in substantial peak in 2019. This suggests that volatility-aware capital allocation becomes especially effective during periods of heightened market dispersion. In contrast, the standard HMM strategy persistently underperforms, which indicate that regime detection alone, without appropriate risk scaling is insufficient to generate robust returns. 
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1.0\linewidth]{../main/backtest_result/MaxDD_over_time.png}
+    \caption{Max Drawdown across Strategies (until 2025)}
+    \label{fig:max_drawdown_over_time}
+\end{figure}
+
+The Figure~\ref{fig:max_drawdown_over_time} highlights the effectiveness of different risk controls. The HMM Standard strategy consistently suffers from severe drawdowns, often exceeding 70\%. The HMM + Elder Rules significantly improves drawdown control, while the HMM + VaR Parity approach achieves the most balanced profile, with drawdowns declines severely after 2018. This shows that volatility scaling and risk budgeting are essential components in mitigating tail risk within regime-switching frameworks.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1.0\linewidth]{../main/backtest_result/Sharpe_over_time.png}
+    \caption{Sharpe Ratio across Strategies (until 2025)}
+    \label{fig:sharpe_ratio_over_time}
+\end{figure}
+
+The Figure~\ref{fig:sharpe_ratio_over_time} shows that the HMM Var Parity demonstrates improvement in Sharpe Ratio during later period while most strategies struggle to achieve stable risk-adjusted returns before 2018.  The HMM Elder strategy also shows moderate enhancement, whereas HMM Standard remains consistently weak. Overall, the results indicate that incorporating both regime awareness and volatility-sensitive position sizing is critical for achieving superior risk-adjusted performance, especially when there are multiple shifts in market regimes.
+
 
 \section{Conclusion}
 This paper presents a theoretical and empirical framework that bridges the gap between macroeconomic regime modeling and microstructural price behavior. By integrating a Gaussian Hidden Markov Model with the Hurst exponent, the proposed architecture effectively filters out the "noise" that plagues traditional momentum strategies.
 
 Future research could expand this framework from a time-series application (single asset) to a cross-sectional application (multi-asset portfolios). Specifically, calculating the Hurst exponent across an entire equities universe to construct a Smart Momentum Factor—going long only on assets exhibiting both high relative momentum and a Hurst exponent $>$ 0.55 — represents a promising frontier for multifactor quantitative modeling.
 
+\renewcommand{\refname}{Works Cited} % Renames "References" to "Works Cited"
+\begin{thebibliography}{9}
+
+    % Adding standard spacing between entries
+    \setlength{\itemsep}{1em} 
+
+    \bibitem{marton2022}
+    Marton, Bence, and Hasan Cakir. "Usage of the Hurst Exponent for Short Term Trading Strategies." \textit{SSRN}, 1 Dec. 2022, \url{https://doi.org/10.2139/ssrn.4290787}.
+    
+    \bibitem{dudia2020}
+    Dudia, Ashwin, et al. "Short Term Trading Model for Asian Equity Index Futures -- Using Hurst Exponent." \textit{SSRN}, 23 Feb. 2020, \url{https://doi.org/10.2139/ssrn.3543079}.
+
+\end{thebibliography}
 
 \end{document}
