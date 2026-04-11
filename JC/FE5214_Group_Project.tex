@@ -5,6 +5,8 @@
 \usepackage{enumitem}
 \usepackage{bm}
 \usepackage{tabularx}
+\usepackage{graphicx}
+\usepackage{float}
 
 \setlength{\parskip}{\baselineskip}%
 \setlength{\parindent}{0pt}%
@@ -136,9 +138,48 @@ The performance of the proposed strategy is evaluated through historical backtes
 Transaction costs and realistic trading constraints are incorporated into the analysis to provide a more accurate assessment of practical performance. The results are then compared with benchmark strategies, such as simple momentum or buy‑and‑hold approaches, in order to determine whether the proposed framework provides a meaningful improvement.
 
 \section{Empirical Analysis}
-This section presents the empirical implementation of the proposed trading framework and evaluates its performance using historical financial data provided by instructors in FE5214 Introduction to Quantitative Investing. The objective is to determine whether the integration of the Hurst exponent, Hidden Markov Models, and momentum indicators improves trading performance compared to conventional strategies.
+This section presents the empirical implementation of the proposed trading framework and evaluates its performance using historical financial data provided by instructors in FE5214 Introduction to Quantitative Investing. The objective is to determine whether the integration of the Hurst exponent, Hidden Markov Models, and momentum indicators improves trading performance. The exploratory analysis focuses on characterizing the idiosyncratic and systematic risks within the Chinese equity universe from 2006 to 2025. This empirical evidence justifies the departure from Gaussian assumptions in favor of the Hidden Markov Model.
 
-\subsection{Explanatory Data Analysis}
+\subsubsection{Non-Normality and Fat Tails}
+Traditional financial models often assume that returns are normally distributed. However, empirical evidence from our dataset strongly contradicts this.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{../main/eda_result/01_return_histograms.png}
+    \caption{Return Distribution: The empirical distribution of market returns exhibits significantly higher peaks and "fatter tails" (excess kurtosis) than the normal distribution overlay.}
+\end{figure}
+
+The Jarque-Bera test confirms this deviation from normality, with significant skewness and kurtosis that indicate a higher probability of extreme "black swan" events than predicted by a Random Walk model. This non-normality is further visualized in the QQ-plot (Figure 5), where the "S-curve" shape at the extremes denotes the presence of heavy tails.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.75\textwidth]{../main/eda_result/02_qq_plots.png}
+    \caption{Quantile-Quantile (QQ) Plot: Significant deviations from the diagonal at the tails confirm that market returns are not Gaussian.}
+\end{figure}
+
+\subsubsection{Volatility Clustering and Autocorrelation}
+A core motivation for the HMM is "volatility clustering"—the tendency for large price changes to be followed by further large price changes.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{../main/eda_result/04_autocorrelation.png}
+    \caption{Autocorrelation Analysis: While raw returns (left) show little autocorrelation, the squared or absolute returns (right) show strong, persistent autocorrelation. This proves that volatility is not constant and exists in "regimes."}
+\end{figure}
+
+\subsubsection{Market Regime Characterization}
+Using the evidence of volatility clustering, we trained an HMM to categorize the market into distinct states.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.95\textwidth]{../main/eda_result/25_regime_context.png}
+    \caption{Market Regime Context: Overlays of HMM states on the Market Index and realized volatility. The model captures structural shifts in market behavior that simple moving averages often miss.}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{../main/eda_result/27_factor_by_regime.png}
+    \caption{Conditional Factor Performance: Momentum performance varies drastically by state, reaching its highest efficacy during the "Trending" regime.}
+\end{figure}
 
 \subsection{Backtesting Framework}
 
