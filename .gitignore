@@ -23,3 +23,7 @@ __pycache__/
 # Output and Results
 output/
 output_*/
+
+# Python Bytecode
+*.pyc
+__pycache__/

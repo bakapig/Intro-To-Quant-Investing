@@ -236,6 +236,64 @@ Before implementing the HMM-regime filters, it is essential to establish the bas
 
 The analysis in Figure \ref{fig:mom_benchmark} reveals that while momentum exhibits periods of significant outperformance, it is subject to sharp "reversals" and prolonged underperformance during market dislocations. As shown previously in Figure \ref{fig:factor_regime}, the efficacy of this factor---measured by its Long-Short Sharpe ratio---is highly regime-dependent. Specifically, momentum thrives in persistent trending environments but degrades into a random walk or mean-reverting behavior during high-volatility regimes. This empirical evidence provides the final justification for our tripartite framework: using HMM to filter regimes, Hurst to confirm persistence, and Momentum for tactical entry.
 
+\subsubsection{Survivorship Bias and Universe Dynamics}
+A common pitfall in quantitative backtesting is survivorship bias, where the exclusion of delisted or failed companies artificially inflates strategy returns. To ensure the robustness of this study, we explicitly track the entry and exit of tickers within our universe.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{../main/eda_result/28_universe_dynamics.png}
+    \caption{Universe Dynamics: The evolution of the investable universe size alongside annual entries (new listings) and exits (delistings). This confirms that our methodology accounts for the time-varying nature of the market pool.}
+    \label{fig:univ_dynamics}
+\end{figure}
+
+To quantify the impact of survivorship, we compared the performance of our full investable universe against a "Survivors Only" subset (stocks that existed throughout the entire period). 
+
+\begin{table}[H]
+    \centering
+    \small
+    \caption{Survivorship Bias Impact (2006--2025)}
+    \label{tab:survivorship}
+    \begin{tabular}{lcccc}
+    \toprule
+    \textbf{Portfolio Type} & \textbf{Ann. Ret} & \textbf{Ann. Vol} & \textbf{Sharpe} & \textbf{Growth} \\
+    \midrule
+    Full Universe (EW)      & 0.144 & 0.266 & 0.539 & 8.0x \\
+    Survivors Only (EW)     & 0.210 & 0.249 & 0.842 & 31.2x \\
+    \midrule
+    Full Universe (MCW)     & 0.196 & 0.235 & 0.835 & 25.8x \\
+    Survivors Only (MCW)    & 0.224 & 0.255 & 0.879 & 39.9x \\
+    \bottomrule
+    \end{tabular}
+\end{table}
+
+As shown in Table \ref{tab:survivorship} and Figure \ref{fig:surv_bias}, ignoring delistings would nearly triple the cumulative growth in an equal-weight portfolio. By utilizing a point-in-time constituent matrix, our backtesting framework avoids this inflation and reflects a realistic investable opportunity set.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{../main/eda_result/30_survivorship_bias.png}
+    \caption{Survivorship Bias Visualization: Performance gap between bias-free and biased universes.}
+    \label{fig:surv_bias}
+\end{figure}
+
+\subsubsection{Liquidity and Market Microstructure}
+The practical implementation of a quantitative strategy is constrained by market liquidity. Our HMM's decision to shift into cash during high-volatility regimes is further justified by the breakdown of liquidity during market stress events.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{../main/eda_result/19_liquidity_drawdowns.png}
+    \caption{Liquidity vs. Drawdowns: The relationship between aggregate market dollar volume and price drawdowns. Note how liquidity significantly contracts during the deepest phases of market crashes.}
+    \label{fig:liq_drawdown}
+\end{figure}
+
+Using the Amihud illiquidity ratio (Figure \ref{fig:amihud}), we observe that execution costs and slippage risk skyrocket during the high-volatility states identified by the HMM. This provides a fundamental microstructural rationale for our "Safe Harbor" rule: during periods of extreme illiquidity and high volatility, the safest tactical move is to reduce exposure to avoid the high costs of "distressed" trading.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{../main/eda_result/17_amihud_illiquidity.png}
+    \caption{Amihud Illiquidity Ratio: Cross-sectional median ratio over time. Spikes in illiquidity perfectly align with the HMM's high-volatility state transitions.}
+    \label{fig:amihud}
+\end{figure}
+
 \subsection{Backtesting Framework}
 
 \section{Results}
