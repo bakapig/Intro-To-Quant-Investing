@@ -22,12 +22,13 @@ import backtrader as bt
 
 
 def generate_target_weights(
-    signals_df, df_mcap, is_buy_and_hold=False, df_var=None, target_risk=0.01
+    signals_df, df_mcap, is_buy_and_hold=False, df_var=None, target_risk=0.01, constituent_df=None
 ):
     """
     Converts signals and market caps into target portfolio weights.
     If is_buy_and_hold=True, ignores signals and buys the market-cap weighted index.
     If df_var is provided, uses Inverse VaR (Risk Parity) weighting instead of Market Cap.
+    If constituent_df is provided, masks weights to only include stocks marked '1'.
     """
     print("Generating Target Weights for Backtrader...")
 
@@ -54,10 +55,26 @@ def generate_target_weights(
         return (active_weights.div(leverage_cap, axis=0)).fillna(0) * execution_signals
 
     # Approach A: Standard Market-Cap Weighting
+    if 'Date' in df_mcap.columns:
+        # Convert YYYYMMDD integers/strings to actual Datetime objects
+        df_mcap['Date'] = pd.to_datetime(df_mcap['Date'].astype(str), format='%Y%m%d')
+        # Set the Date column as the true index
+        df_mcap = df_mcap.set_index('Date')
+    
+    # 2. Ensure the index is a DatetimeIndex to perfectly match signals_df
+    df_mcap.index = pd.to_datetime(df_mcap.index)
+    
+    # Now reindex will align the dates properly instead of generating NaNs
     df_mcap = df_mcap.reindex(index=signals_df.index, columns=signals_df.columns)
     execution_mcap = df_mcap.shift(1)
 
     active_mcap = execution_mcap.where(execution_signals != 0)
+    
+    # 3. Apply constituent mask if provided (univ_h)
+    if constituent_df is not None:
+        mask = constituent_df.reindex(index=signals_df.index, columns=signals_df.columns).shift(1).fillna(0)
+        active_mcap = active_mcap.where(mask == 1)
+
     normalized_weights = active_mcap.div(active_mcap.sum(axis=1), axis=0).fillna(0)
     target_weights = normalized_weights * execution_signals
 
@@ -95,16 +112,38 @@ class ChinaAShareCommission(bt.CommInfoBase):
             cost += turnover * self.p.stamp_duty
         return cost
 
+class CustomTradeLogAnalyzer(bt.Analyzer):
+    """
+    Custom Analyzer to cleanly extract all transaction details,
+    including the asset ticker, which standard Backtrader omits.
+    """
+    def __init__(self):
+        self.transactions = []
 
+    def notify_order(self, order):
+        # Only record completed orders (executed trades)
+        if order.status == order.Completed:
+            self.transactions.append({
+                'datetime': self.strategy.datetime.datetime(),
+                'ticker': order.data._name, # Safely grabs the exact ticker
+                'size': order.executed.size,
+                'price': order.executed.price,
+                'value': order.executed.value,
+                'commission': order.executed.comm
+            })
+
+    def get_analysis(self):
+        return self.transactions
+    
 class SignalData(bt.feeds.PandasData):
     """Custom Data Feed that includes pre-calculated Target Weight."""
 
     lines = ("target_weight",)
     params = (
         ("datetime", None),
-        ("open", "Close"),
-        ("high", "Close"),
-        ("low", "Close"),
+        ("open", "Open"),
+        ("high", "Open"),
+        ("low", "Open"),
         ("close", "Close"),
         ("volume", -1),
         ("openinterest", -1),
@@ -128,13 +167,26 @@ class DetailedExecutionStrategy(bt.Strategy):
         ("elder_max_dd", 0.06),  # 6% Rule (max monthly drawdown)
         ("rebalance_day", 0),  # 0=Monday. Only rebalance on this weekday.
         ("min_weight_change", 0.005),  # 0.5% threshold to trigger a trade
+        ("rebalance_freq", "W"),  # 'W' (Weekly), 'M' (Monthly), 'Q' (Quarterly), 'D' (Daily)
     )
 
     def __init__(self):
         self.logger = self.p.logger
-        self.month_start_value = None
         self.current_month = None
+        self.month_start_value = None
         self.trading_halted = False
+        self.last_period_id = None  # To track week/month/quarter changes
+
+        # Used to ensure we rebalance exactly once per week, ignoring holidays
+        self.last_rebalance_week = None 
+    
+    def prenext(self):
+        """
+        Backtrader defaults to waiting until ALL 900+ assets have data.
+        Calling next() here forces it to run immediately from 2006,
+        even if some stocks don't IPO until 2023.
+        """
+        self.next()
 
     def log(self, txt, dt=None):
         if self.p.print_logs:
@@ -181,8 +233,9 @@ class DetailedExecutionStrategy(bt.Strategy):
     def next(self):
         current_date = self.datas[0].datetime.date(0)
 
+        # 1. Elder Rules Logic (drawdown monitoring)
         if self.p.use_elder_rules:
-            # Evaluate at the start of a new month
+            # Monthly reset for Elder Rules
             if self.current_month != current_date.month:
                 self.current_month = current_date.month
                 self.month_start_value = self.broker.getvalue()
@@ -190,7 +243,6 @@ class DetailedExecutionStrategy(bt.Strategy):
                     self.log("ELDER 6% RULE: New month started. Trading resumed.")
                 self.trading_halted = False
 
-            # Monitor the 6% Rule monthly drawdown threshold
             if (
                 not self.trading_halted
                 and self.month_start_value is not None
@@ -203,17 +255,23 @@ class DetailedExecutionStrategy(bt.Strategy):
                     self.log(
                         f"ELDER 6% RULE TRIGGERED: Monthly DD {current_dd*100:.2f}%. Halting trading."
                     )
-                    if self.logger:
-                        self.logger.info(
-                            f"{current_date.isoformat()} | ELDER 6% RULE: Liquidating portfolio for the month."
-                        )
                     self.trading_halted = True
-                    for data in self.datas:
-                        if self.getposition(data).size != 0:
-                            self.order_target_percent(data, target=0.0)
-
+            
             if self.trading_halted:
                 return
+        
+        # --------------------------------------------------
+        # WEEKLY REBALANCE GATE (Holiday Safe)
+        # --------------------------------------------------
+        # isocalendar()[1] returns the week number of the year (1-52).
+        # This ensures that if Monday is a holiday, it will rebalance on Tuesday.
+        current_week = current_date.isocalendar()[1]
+        
+        if current_week == self.last_rebalance_week:
+            return  # We already rebalanced this week, skip today.
+
+        # Mark this week as rebalanced!
+        self.last_rebalance_week = current_week
 
         for data in self.datas:
             target_pct = data.target_weight[0]
@@ -222,24 +280,39 @@ class DetailedExecutionStrategy(bt.Strategy):
                     target_pct = max(
                         min(target_pct, self.p.elder_max_pos), -self.p.elder_max_pos
                     )
-
-                # --- Weekly rebalance gate ---
-                # Only rebalance on the designated weekday (default Monday=0)
-                if current_date.weekday() != self.p.rebalance_day:
-                    continue
-
-                # --- Weight change threshold ---
-                # Skip if the change vs current position is below min threshold
+                
+                # --- Chinese A-Share 100-Lot Constraint ---
                 pos = self.getposition(data)
                 portfolio_value = self.broker.getvalue()
-                if portfolio_value > 0 and pos:
-                    current_pct = (pos.size * data.close[0]) / portfolio_value
+
+                # MUST STOP if portfolio is burnt to zero to prevent reverse-margin shorting bugs
+                if portfolio_value <= 0:
+                    return
+
+                # Handle Delistings: If price is NaN or zero, target becomes 0
+                if np.isnan(data.close[0]) or data.close[0] <= 0:
+                    target_shares = 0
                 else:
-                    current_pct = 0.0
-                if abs(target_pct - current_pct) < self.p.min_weight_change:
+                    target_value = portfolio_value * target_pct
+                    raw_shares = target_value / data.close[0]
+                    # Round down to the nearest 100 shares (1 Board Lot = 100 shares)
+                    target_shares = int(raw_shares // 100) * 100
+
+                current_shares = pos.size if pos else 0
+
+                # Only issue an order if the lot-adjusted target differs from current holdings
+                if target_shares == current_shares:
                     continue
 
-                self.order_target_percent(data, target=target_pct)
+                # --- 5% Drift Tolerance ---
+                # Only rebalance if the shares needed to buy/sell are greater than a 5% difference
+                # from our current standing holdings to avoid micro-transaction spam in Buy & Hold
+                if current_shares != 0:
+                    change_pct = abs(target_shares - current_shares) / abs(current_shares)
+                    if change_pct < 0.05:
+                        continue
+
+                self.order_target_size(data, target=target_shares)
 
 
 # ---------------------------------------------------------------------------
@@ -247,7 +320,7 @@ class DetailedExecutionStrategy(bt.Strategy):
 # ---------------------------------------------------------------------------
 
 
-def setup_logger(test_name, output_dir="output"):
+def setup_logger(test_name, output_dir="output", console_out=True):
     """Create a logger that writes to both file and console."""
     import os
 
@@ -270,7 +343,9 @@ def setup_logger(test_name, output_dir="output"):
     ch.setFormatter(formatter)
 
     logger.addHandler(fh)
-    logger.addHandler(ch)
+
+    if console_out:
+        logger.addHandler(ch)
 
     return logger
 
@@ -284,11 +359,16 @@ def run_backtrader_engine(
     df_prices,
     target_weights_df,
     test_name="Strategy",
-    starting_cash=1_000_000.0,
+    starting_cash=100_000_000.0,
     logger=None,
     print_logs=False,
     output_dir="output",
     use_elder_rules=False,
+    elder_max_pos=0.02,
+    elder_max_dd=0.06,
+    rebalance_freq="W",
+    console_out=True,
+    StrategyClass=DetailedExecutionStrategy,
 ):
     """Initializes Cerebro, runs the engine, and calculates KPIs."""
     import os
@@ -296,18 +376,38 @@ def run_backtrader_engine(
     os.makedirs(output_dir, exist_ok=True)
 
     if logger is None:
-        logger = setup_logger(test_name, output_dir=output_dir)
+        logger = setup_logger(test_name, output_dir=output_dir, console_out=console_out)
 
-    print(f"\nInitializing Backtrader Engine for: {test_name} ...")
+    if console_out:
+        print(f"\nInitializing Backtrader Engine for: {test_name} ...")
 
-    cerebro = bt.Cerebro()
+    cerebro = bt.Cerebro(stdstats=False) # OPTIMIZATION: Disable visual/plotting observers for speed
     cerebro.broker.setcash(starting_cash)
     cerebro.broker.addcommissioninfo(ChinaAShareCommission())
 
-    for ticker in df_prices.columns:
-        asset_df = pd.DataFrame(
-            {"Close": df_prices[ticker], "Target_Weight": target_weights_df[ticker]}
-        ).dropna(subset=["Close"])
+    # OPTIMIZATION: Prefilter tickers that have 0 weight for the entire period
+    # This prevents Backtrader from wasting cycles on assets that are never traded.
+    active_weights = target_weights_df.abs().sum()
+    all_tickers = df_prices.columns.get_level_values(0).unique() if isinstance(df_prices.columns, pd.MultiIndex) else df_prices.columns
+    tickers_to_process = [t for t in all_tickers if t in active_weights.index and active_weights[t] > 0]
+
+    if console_out:
+        print(f"  Filtering universe: {len(all_tickers)} assets -> {len(tickers_to_process)} active assets.")
+
+    for ticker in tickers_to_process:
+        if isinstance(df_prices.columns, pd.MultiIndex):
+            # Expecting columns like (Ticker, 'Close') and (Ticker, 'Open')
+            asset_df = df_prices[ticker].copy()
+            asset_df["Target_Weight"] = target_weights_df[ticker]
+        else:
+            # Fallback for single column Close data
+            asset_df = pd.DataFrame({
+                "Close": df_prices[ticker],
+                "Open": df_prices[ticker], # Fallback to Close if Open is missing
+                "Target_Weight": target_weights_df[ticker]
+            })
+        
+        asset_df = asset_df.dropna(subset=["Close"])
 
         if asset_df.empty:
             continue
@@ -316,10 +416,13 @@ def run_backtrader_engine(
         cerebro.adddata(data)
 
     cerebro.addstrategy(
-        DetailedExecutionStrategy,
+        StrategyClass,
         logger=logger,
         print_logs=print_logs,
         use_elder_rules=use_elder_rules,
+        elder_max_pos=elder_max_pos,
+        elder_max_dd=elder_max_dd,
+        rebalance_freq=rebalance_freq,
     )
 
     cerebro.addanalyzer(bt.analyzers.TradeAnalyzer, _name="trades")
@@ -327,8 +430,16 @@ def run_backtrader_engine(
     cerebro.addanalyzer(
         bt.analyzers.SharpeRatio, _name="sharpe", riskfreerate=0.02, annualize=True
     )
+    cerebro.addanalyzer(
+        bt.analyzers.SharpeRatio_A,
+        _name="sharpe_a",
+        riskfreerate=0.02,
+        annualize=True,
+        timeframe=bt.TimeFrame.Days,
+    )
     cerebro.addanalyzer(bt.analyzers.TimeReturn, _name="returns")
-    cerebro.addanalyzer(bt.analyzers.Transactions, _name="transactions")
+    cerebro.addanalyzer(CustomTradeLogAnalyzer, _name="transactions")
+    cerebro.addanalyzer(bt.analyzers.PositionsValue, _name="positions_value")
 
     logger.info("Starting Backtest execution...")
     logger.info(f"Starting Portfolio Value: ${cerebro.broker.getvalue():.2f}")
@@ -339,46 +450,161 @@ def run_backtrader_engine(
     final_value = cerebro.broker.getvalue()
     net_pnl = final_value - starting_cash
 
-    trade_analysis = strat.analyzers.trades.get_analysis()
-    try:
-        total_closed = trade_analysis.total.closed
-    except (KeyError, AttributeError):
-        total_closed = 0
-    try:
-        won_trades = trade_analysis.won.total
-    except (KeyError, AttributeError):
-        won_trades = 0
-    win_rate = (won_trades / total_closed * 100) if total_closed > 0 else 0
+    # ========================
+    # Trade Analysis
+    # ========================
+    ta = strat.analyzers.trades.get_analysis()
 
-    drawdown_analysis = strat.analyzers.drawdown.get_analysis()
-    try:
-        max_dd = drawdown_analysis.max.drawdown
-    except (KeyError, AttributeError):
-        max_dd = 0.0
+    def safe_get(d, *keys):
+        for k in keys:
+            d = d.get(k, {})
+        return d if d != {} else 0
 
+    total_open = safe_get(ta, "total", "open")
+    total_closed = safe_get(ta, "total", "closed")
+
+    won_total = safe_get(ta, "won", "total")
+    lost_total = safe_get(ta, "lost", "total")
+
+    win_rate = (won_total / total_closed * 100) if total_closed > 0 else 0
+
+    # Streaks
+    win_streak_current = safe_get(ta, "streak", "won", "current")
+    win_streak_longest = safe_get(ta, "streak", "won", "longest")
+    loss_streak_current = safe_get(ta, "streak", "lost", "current")
+    loss_streak_longest = safe_get(ta, "streak", "lost", "longest")
+
+    # PnL
+    pnl_total = safe_get(ta, "pnl", "net", "total")
+    pnl_avg = safe_get(ta, "pnl", "net", "average")
+
+    # Won/Lost stats
+    won_pnl_total = safe_get(ta, "won", "pnl", "total")
+    won_pnl_avg = safe_get(ta, "won", "pnl", "average")
+    won_pnl_max = safe_get(ta, "won", "pnl", "max")
+
+    lost_pnl_total = safe_get(ta, "lost", "pnl", "total")
+    lost_pnl_avg = safe_get(ta, "lost", "pnl", "average")
+    lost_pnl_max = safe_get(ta, "lost", "pnl", "max")
+
+    # Long/Short
+    long_total = safe_get(ta, "long", "total")
+    long_pnl_total = safe_get(ta, "long", "pnl", "total")
+    long_pnl_avg = safe_get(ta, "long", "pnl", "average")
+    long_pnl_max = safe_get(ta, "long", "pnl", "max")
+
+    short_total = safe_get(ta, "short", "total")
+    short_pnl_total = safe_get(ta, "short", "pnl", "total")
+    short_pnl_avg = safe_get(ta, "short", "pnl", "average")
+    short_pnl_max = safe_get(ta, "short", "pnl", "max")
+
+    # Length (bars)
+    len_total = safe_get(ta, "len", "total")
+    len_avg = safe_get(ta, "len", "average")
+    len_max = safe_get(ta, "len", "max")
+    len_min = safe_get(ta, "len", "min")
+
+    # ========================
+    # Drawdown
+    # ========================
+    dd = strat.analyzers.drawdown.get_analysis()
+    max_dd = safe_get(dd, "max", "drawdown")
+
+    # ========================
+    # Sharpe
+    # ========================
     sharpe_analysis = strat.analyzers.sharpe.get_analysis()
-    sharpe_ratio = sharpe_analysis.get("sharperatio") or 0
+    sharpe_ratio = sharpe_analysis.get("sharperatio", 0)
+    if sharpe_ratio is None:
+        sharpe_ratio = 0.0
 
-    txn = strat.analyzers.transactions.get_analysis()
-    txn_df = pd.DataFrame(
-        [
-            {"datetime": k, "ticker": v[0][0], "size": v[0][1], "price": v[0][2]}
-            for k, v in txn.items()
-        ]
-    )
-    txn_df.to_csv(
-        os.path.join(output_dir, f"{test_name}_transactions.csv"), index=False
-    )
+    sharpe_a_analysis = strat.analyzers.sharpe_a.get_analysis()
+    sharpe_a_ratio = sharpe_a_analysis.get("sharperatio", 0)
+    if sharpe_a_ratio is None:
+        sharpe_a_ratio = 0.0
 
-    logger.info("\n" + "=" * 50)
+    # ========================
+    # Time Returns → Annual Return
+    # ========================
+    returns_dict = strat.analyzers.returns.get_analysis()
+    returns_series = pd.Series(returns_dict)
+
+    total_return = (1 + returns_series).prod() - 1
+    annual_return = (1 + total_return) ** (252 / len(returns_series)) - 1
+
+    # ========================
+    # Calmar Ratio
+    # ========================
+    calmar = (annual_return / (max_dd / 100)) if max_dd != 0 else 0
+
+    # ========================
+    # Positions Value
+    # ========================
+    pos_val = strat.analyzers.positions_value.get_analysis()
+    pos_df = pd.DataFrame(pos_val)
+
+    # ========================
+    # Logging
+    # ========================
+    logger.info("\n" + "=" * 60)
     logger.info(f"BACKTRADER RESULTS: {test_name.upper()}")
-    logger.info("=" * 50)
+    logger.info("=" * 60)
+
     logger.info(f"Final Portfolio Value : ${final_value:,.2f}")
     logger.info(f"Net PnL               : ${net_pnl:,.2f}")
-    logger.info(f"Total Trades Closed   : {total_closed:,}")
-    logger.info(f"Win Rate (Strike Rate): {win_rate:.2f}%")
+
+    logger.info("--- Returns ---")
+    logger.info(f"Total Return          : {total_return:.2%}")
+    logger.info(f"Annual Return         : {annual_return:.2%}")
+    logger.info(f"Calmar Ratio          : {calmar:.2f}")
+
+    logger.info("--- Trades ---")
+    logger.info(f"Open Trades           : {total_open}")
+    logger.info(f"Closed Trades         : {total_closed}")
+    logger.info(f"Win Rate              : {win_rate:.2f}%")
+
+    logger.info("--- Streaks ---")
+    logger.info(f"Win Streak (Cur/Max)  : {win_streak_current}/{win_streak_longest}")
+    logger.info(f"Loss Streak (Cur/Max) : {loss_streak_current}/{loss_streak_longest}")
+
+    logger.info("--- PnL ---")
+    logger.info(f"Total PnL             : {pnl_total:,.2f}")
+    logger.info(f"Avg PnL               : {pnl_avg:,.2f}")
+
+    logger.info("--- Won Trades ---")
+    logger.info(f"Count                 : {won_total}")
+    logger.info(f"Total/Avg/Max         : {won_pnl_total:.2f} / {won_pnl_avg:.2f} / {won_pnl_max:.2f}")
+
+    logger.info("--- Lost Trades ---")
+    logger.info(f"Count                 : {lost_total}")
+    logger.info(f"Total/Avg/Max         : {lost_pnl_total:.2f} / {lost_pnl_avg:.2f} / {lost_pnl_max:.2f}")
+
+    logger.info("--- Long Trades ---")
+    logger.info(f"Count                 : {long_total}")
+    logger.info(f"Total/Avg/Max         : {long_pnl_total:.2f} / {long_pnl_avg:.2f} / {long_pnl_max:.2f}")
+
+    logger.info("--- Short Trades ---")
+    logger.info(f"Count                 : {short_total}")
+    logger.info(f"Total/Avg/Max         : {short_pnl_total:.2f} / {short_pnl_avg:.2f} / {short_pnl_max:.2f}")
+
+    logger.info("--- Trade Length (bars) ---")
+    logger.info(f"Total/Avg/Max/Min     : {len_total} / {len_avg:.2f} / {len_max} / {len_min}")
+
+    logger.info("--- Risk ---")
     logger.info(f"Max Drawdown          : {max_dd:.2f}%")
     logger.info(f"Sharpe Ratio          : {sharpe_ratio:.2f}")
-    logger.info("=" * 50)
+    logger.info(f"Sharpe Ratio (Annual) : {sharpe_a_ratio:.2f}")
 
-    return cerebro, strat
+    logger.info("=" * 60)
+
+    metrics = {
+        "Strategy": test_name,
+        "Final Value": final_value,
+        "Net PnL": net_pnl,
+        "Trades": total_closed,
+        "Win Rate (%)": win_rate,
+        "Max DD (%)": max_dd,
+        "Sharpe": sharpe_ratio,
+    }
+
+    return cerebro, strat, metrics

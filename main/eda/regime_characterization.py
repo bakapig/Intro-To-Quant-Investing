@@ -1,11 +1,11 @@
 """
 eda/regime_characterization.py
 ------------------------------
-Part 7 – Regime characterisation
+Part 7 - Regime characterisation
 
 Analyses:
   1. Regime overlay on drawdown, volatility, cross-sectional dispersion
-  2. Transition matrix heatmap (how often regime X → regime Y)
+  2. Transition matrix heatmap (how often regime X -> regime Y)
   3. Factor performance conditional on regime
 
 All outputs go to  output/eda/ .
@@ -21,8 +21,10 @@ from matplotlib.colors import ListedColormap
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+import config
 from data_loader import load_all_data
+from hmm_strategy import get_ordered_states
+from hmmlearn.hmm import GaussianHMM
 
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "..", "output", "eda")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -37,7 +39,7 @@ REGIME_COLORS = {
 REGIME_ORDER = ["trending", "mean_reverting", "random_walk"]
 
 
-# ── helpers ──────────────────────────────────────────────────────────────────
+#  helpers 
 
 
 def _build_market_index(data: dict) -> pd.Series:
@@ -57,11 +59,11 @@ def _drawdown(prices: pd.Series) -> pd.Series:
     return (prices - peak) / peak
 
 
-# ── Analysis 1: Regime vs drawdown / vol / dispersion ────────────────────────
+#  Analysis 1: Regime vs drawdown / vol / dispersion 
 
 
 def plot_regime_context(regimes: pd.DataFrame, data: dict) -> None:
-    print("  1. Regime context (drawdown, vol, dispersion) …")
+    print("  1. Regime context (drawdown, vol, dispersion) ...")
 
     idx = _build_market_index(data)
     dd = _drawdown(idx)
@@ -157,7 +159,7 @@ def plot_regime_context(regimes: pd.DataFrame, data: dict) -> None:
     fig.tight_layout()
     fig.savefig(os.path.join(OUTPUT_DIR, "25_regime_context.png"))
     plt.close(fig)
-    print("    ✓ 25_regime_context.png")
+    print("    [DONE] 25_regime_context.png")
 
     # Summary table
     records = []
@@ -180,15 +182,15 @@ def plot_regime_context(regimes: pd.DataFrame, data: dict) -> None:
     summary.to_csv(
         os.path.join(OUTPUT_DIR, "25_regime_context_summary.csv"), index=False
     )
-    print("    ✓ 25_regime_context_summary.csv")
+    print("    [DONE] 25_regime_context_summary.csv")
     print(summary.to_string(index=False))
 
 
-# ── Analysis 2: Transition matrix ────────────────────────────────────────────
+#  Analysis 2: Transition matrix 
 
 
 def plot_transition_matrix(regimes: pd.DataFrame) -> None:
-    print("\n  2. Transition matrix …")
+    print("\n  2. Transition matrix ...")
 
     labels = regimes["regime_label"].values
     n = len(REGIME_ORDER)
@@ -245,7 +247,7 @@ def plot_transition_matrix(regimes: pd.DataFrame) -> None:
     fig.tight_layout()
     fig.savefig(os.path.join(OUTPUT_DIR, "26_transition_matrix.png"))
     plt.close(fig)
-    print("    ✓ 26_transition_matrix.png")
+    print("    [DONE] 26_transition_matrix.png")
 
     # Average regime duration
     durations = {r: [] for r in REGIME_ORDER}
@@ -269,11 +271,11 @@ def plot_transition_matrix(regimes: pd.DataFrame) -> None:
             )
 
 
-# ── Analysis 3: Factor performance by regime ─────────────────────────────────
+#  Analysis 3: Factor performance by regime 
 
 
 def plot_factor_by_regime(regimes: pd.DataFrame, data: dict) -> None:
-    print("\n  3. Factor performance by regime …")
+    print("\n  3. Factor performance by regime ...")
 
     adj = data["adjusted"]
     mktcap = data["mktcap"]
@@ -369,7 +371,7 @@ def plot_factor_by_regime(regimes: pd.DataFrame, data: dict) -> None:
 
     df = pd.DataFrame(results)
     df.to_csv(os.path.join(OUTPUT_DIR, "27_factor_by_regime.csv"), index=False)
-    print("    ✓ 27_factor_by_regime.csv")
+    print("    [DONE] 27_factor_by_regime.csv")
 
     # Plot: grouped bar chart
     fig, ax = plt.subplots(figsize=(12, 6))
@@ -405,29 +407,51 @@ def plot_factor_by_regime(regimes: pd.DataFrame, data: dict) -> None:
     fig.tight_layout()
     fig.savefig(os.path.join(OUTPUT_DIR, "27_factor_by_regime.png"))
     plt.close(fig)
-    print("    ✓ 27_factor_by_regime.png")
+    print("    [DONE] 27_factor_by_regime.png")
     print(df.to_string(index=False))
 
 
-# ── main ─────────────────────────────────────────────────────────────────────
+#  main 
 
 
-def main():
-    print("Loading data …")
-    data = load_all_data()
+def main(data=None, output_dir=None):
+    global OUTPUT_DIR
+    if output_dir:
+        OUTPUT_DIR = output_dir
 
-    print("Loading regime labels …")
-    regimes = pd.read_csv(
-        os.path.join(os.path.dirname(__file__), "..", "regimes_output.csv"),
-        parse_dates=["Date"],
-    )
-    regimes.set_index("Date", inplace=True)
+    if data is None:
+        print("Loading data ...")
+        data = load_all_data()
+
+    print("Preparing regime labels ...")
+    regime_file = os.path.join(os.path.dirname(__file__), "..", "regimes_output.csv")
+    
+    if os.path.exists(regime_file):
+        regimes = pd.read_csv(regime_file, parse_dates=["Date"])
+        regimes.set_index("Date", inplace=True)
+    else:
+        print("  Signal file not found. Fitting HMM on Market Index returns on-the-fly...")
+        idx = _build_market_index(data)
+        log_ret = np.log(idx / idx.shift(1)).dropna()
+        
+        # Fit HMM on Market Returns
+        X = log_ret.values.reshape(-1, 1)
+        model = GaussianHMM(n_components=config.N_STATES, covariance_type="full", n_iter=1000, random_state=42)
+        model.fit(X)
+        
+        # Generate labels
+        states = get_ordered_states(model, log_ret)
+        regimes = pd.DataFrame(index=log_ret.index)
+        regimes["regime_label"] = states
+        # Map 0/1 to descriptive labels if needed, or just use strings
+        label_map = {0: "trending", 1: "mean_reverting"} if config.N_STATES == 2 else {0: "trending", 1: "random_walk", 2: "mean_reverting"}
+        regimes["regime_label"] = regimes["regime_label"].map(label_map).fillna("random_walk")
 
     plot_regime_context(regimes, data)
     plot_transition_matrix(regimes)
     plot_factor_by_regime(regimes, data)
 
-    print("\n✓ Part 7 complete – regime characterisation saved to output/eda/")
+    print("\n[DONE] Part 7 complete - regime characterisation saved to output/eda/")
 
 
 if __name__ == "__main__":

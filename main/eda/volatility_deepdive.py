@@ -1,7 +1,7 @@
 """
 eda/volatility_deepdive.py
 --------------------------
-Part 6 – Volatility deep-dive
+Part 6 - Volatility deep-dive
 
 Analyses:
   1. Realized vs. Parkinson volatility (using OHLC data)
@@ -29,9 +29,15 @@ plt.rcParams.update({"figure.dpi": 150, "savefig.bbox": "tight", "font.size": 10
 WINDOW = 20  # 1-month rolling
 
 
-def main():
-    # ── Load data ────────────────────────────────────────────────────────────
-    data = load_all_data()
+def main(data=None, output_dir=None):
+    #  Load data 
+    global OUTPUT_DIR
+    if output_dir:
+        OUTPUT_DIR = output_dir
+
+    if data is None:
+        print("Loading data ...")
+        data = load_all_data()
     adj = data["adjusted"]
     high = data["high"]
     low = data["low"]
@@ -53,8 +59,8 @@ def main():
     weights = mktcap.div(mktcap.sum(axis=1), axis=0)
     mkt_ret = (returns * weights.shift(1)).sum(axis=1).dropna()
 
-    # ── 1. Realized vs. Parkinson volatility ────────────────────────────────
-    print("1/3  Realized vs Parkinson volatility …")
+    #  1. Realized vs. Parkinson volatility 
+    print("1/3  Realized vs Parkinson volatility ...")
 
     realized_var = (mkt_ret**2).rolling(WINDOW, min_periods=15).mean()
     realized_vol = np.sqrt(realized_var * 252) * 100
@@ -91,10 +97,10 @@ def main():
     fig.tight_layout()
     fig.savefig(os.path.join(OUTPUT_DIR, "21_realized_vs_parkinson_vol.png"))
     plt.close(fig)
-    print("   → saved 21_realized_vs_parkinson_vol.png")
+    print("   -> saved 21_realized_vs_parkinson_vol.png")
 
-    # ── 2. Volatility term structure: 5d vs 20d vs 60d ──────────────────────
-    print("2/3  Volatility term structure …")
+    #  2. Volatility term structure: 5d vs 20d vs 60d 
+    print("2/3  Volatility term structure ...")
 
     windows = {"5d": 5, "20d": 20, "60d": 60}
     vol_series = {}
@@ -135,11 +141,11 @@ def main():
         where=spread <= 0,
         color="lightgreen",
         alpha=0.5,
-        label="60d ≥ 5d (calm)",
+        label="60d  5d (calm)",
     )
     axes[1].axhline(0, color="black", linewidth=0.5)
     axes[1].set_ylabel("Spread (pp)")
-    axes[1].set_title("Vol Term Spread: 5d − 60d")
+    axes[1].set_title("Vol Term Spread: 5d - 60d")
     axes[1].legend(fontsize=8)
     axes[1].xaxis.set_major_locator(mdates.YearLocator(2))
     axes[1].xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
@@ -147,10 +153,10 @@ def main():
     fig.tight_layout()
     fig.savefig(os.path.join(OUTPUT_DIR, "22_vol_term_structure.png"))
     plt.close(fig)
-    print("   → saved 22_vol_term_structure.png")
+    print("   -> saved 22_vol_term_structure.png")
 
-    # ── 3. Leverage effect ──────────────────────────────────────────────────
-    print("3/3  Leverage effect …")
+    #  3. Leverage effect 
+    print("3/3  Leverage effect ...")
 
     fwd_vol_simple = realized_vol.shift(-WINDOW)
 
@@ -195,9 +201,9 @@ def main():
     fig.tight_layout()
     fig.savefig(os.path.join(OUTPUT_DIR, "23_leverage_effect.png"))
     plt.close(fig)
-    print("   → saved 23_leverage_effect.png")
+    print("   -> saved 23_leverage_effect.png")
 
-    # ── Summary stats ────────────────────────────────────────────────────────
+    #  Summary stats 
     summary = {
         "Avg realized vol (20d, ann %)": f"{realized_vol.mean():.1f}",
         "Avg Parkinson vol (20d, ann %)": f"{parkinson_vol.mean():.1f}",
@@ -211,9 +217,9 @@ def main():
     summary_df.to_csv(
         os.path.join(OUTPUT_DIR, "24_volatility_summary.csv"), index=False
     )
-    print("   → saved 24_volatility_summary.csv")
+    print("   -> saved 24_volatility_summary.csv")
     print("\n" + summary_df.to_string(index=False))
-    print("\nDone – volatility deep-dive complete.")
+    print("\nDone - volatility deep-dive complete.")
 
 
 if __name__ == "__main__":

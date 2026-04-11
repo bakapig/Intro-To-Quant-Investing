@@ -1,7 +1,7 @@
 """
 eda/correlation_structure.py
 ----------------------------
-Part 3 – Correlation structure analysis
+Part 3 - Correlation structure analysis
 
 Analyses:
   1. Rolling average pairwise correlation (diversification over time)
@@ -29,7 +29,7 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 plt.rcParams.update({"figure.dpi": 150, "savefig.bbox": "tight", "font.size": 10})
 
-# GICS sector code → name mapping (top-level 2-digit)
+# GICS sector code -> name mapping (top-level 2-digit)
 GICS_SECTORS = {
     "10": "Energy",
     "15": "Materials",
@@ -46,7 +46,7 @@ GICS_SECTORS = {
 
 
 def _load_sector_map(data: dict) -> dict:
-    """Map ticker → sector name using tickers.csv."""
+    """Map ticker -> sector name using tickers.csv."""
     tickers_df = data["tickers"]
     col_ticker = tickers_df.columns[0]
     col_gics = tickers_df.columns[1]
@@ -69,7 +69,7 @@ def _load_sector_map(data: dict) -> dict:
     return sector_map
 
 
-# ── 1. Rolling average pairwise correlation ─────────────────────────────────
+#  1. Rolling average pairwise correlation 
 
 
 def plot_rolling_correlation(data: dict, window: int = 60) -> None:
@@ -126,10 +126,10 @@ def plot_rolling_correlation(data: dict, window: int = 60) -> None:
     fig.tight_layout()
     fig.savefig(os.path.join(OUTPUT_DIR, "14_rolling_avg_correlation.png"))
     plt.close(fig)
-    print("  ✓ 14_rolling_avg_correlation.png")
+    print("  [Done] 14_rolling_avg_correlation.png")
 
 
-# ── 2. Sector correlation heatmap ───────────────────────────────────────────
+#  2. Sector correlation heatmap 
 
 
 def plot_sector_correlation(data: dict) -> None:
@@ -184,10 +184,10 @@ def plot_sector_correlation(data: dict) -> None:
     fig.tight_layout()
     fig.savefig(os.path.join(OUTPUT_DIR, "15_sector_correlation_heatmap.png"))
     plt.close(fig)
-    print("  ✓ 15_sector_correlation_heatmap.png")
+    print("  [Done] 15_sector_correlation_heatmap.png")
 
 
-# ── 3. Eigenvalue / PCA analysis ────────────────────────────────────────────
+#  3. Eigenvalue / PCA analysis 
 
 
 def plot_eigenvalue_analysis(data: dict) -> None:
@@ -232,7 +232,7 @@ def plot_eigenvalue_analysis(data: dict) -> None:
         edgecolor="white",
         linewidth=0.3,
     )
-    ax.set_title("Scree plot – variance explained per PC")
+    ax.set_title("Scree plot - variance explained per PC")
     ax.set_xlabel("Principal component")
     ax.set_ylabel("% variance explained")
     ax.set_xlim(0.5, n_show + 0.5)
@@ -241,9 +241,9 @@ def plot_eigenvalue_analysis(data: dict) -> None:
     # Cumulative
     ax = axes[1]
     ax.plot(range(1, len(cum_explained) + 1), cum_explained * 100, lw=1.5, color="teal")
-    ax.axhline(50, color="orange", ls="--", lw=0.7, label=f"50% → {n50} PCs")
-    ax.axhline(70, color="red", ls="--", lw=0.7, label=f"70% → {n70} PCs")
-    ax.axhline(90, color="darkred", ls="--", lw=0.7, label=f"90% → {n90} PCs")
+    ax.axhline(50, color="orange", ls="--", lw=0.7, label=f"50% -> {n50} PCs")
+    ax.axhline(70, color="red", ls="--", lw=0.7, label=f"70% -> {n70} PCs")
+    ax.axhline(90, color="darkred", ls="--", lw=0.7, label=f"90% -> {n90} PCs")
     ax.set_title("Cumulative variance explained")
     ax.set_xlabel("Number of principal components")
     ax.set_ylabel("Cumulative % explained")
@@ -261,30 +261,35 @@ def plot_eigenvalue_analysis(data: dict) -> None:
     fig.savefig(os.path.join(OUTPUT_DIR, "16_eigenvalue_pca.png"))
     plt.close(fig)
 
-    print("  ✓ 16_eigenvalue_pca.png")
+    print("  [DONE] 16_eigenvalue_pca.png")
     print(f"    PCs for 50% variance: {n50}")
     print(f"    PCs for 70% variance: {n70}")
     print(f"    PCs for 90% variance: {n90}")
     print(f"    PC1 explains {explained[0]*100:.1f}% of total variance")
 
 
-# ── main ─────────────────────────────────────────────────────────────────────
+#  main 
 
 
-def main():
-    print("Loading data …")
-    data = load_all_data()
+def main(data=None, output_dir=None):
+    global OUTPUT_DIR
+    if output_dir:
+        OUTPUT_DIR = output_dir
 
-    print("\nRunning EDA – Correlation structure")
+    if data is None:
+        print("Loading data ...")
+        data = load_all_data()
+
+    print("\nRunning EDA - Correlation structure")
     print("=" * 45)
 
-    print("\n1. Rolling average pairwise correlation …")
+    print("\n1. Rolling average pairwise correlation ...")
     plot_rolling_correlation(data)
 
-    print("\n2. Sector correlation heatmap …")
+    print("\n2. Sector correlation heatmap ...")
     plot_sector_correlation(data)
 
-    print("\n3. Eigenvalue / PCA analysis …")
+    print("\n3. Eigenvalue / PCA analysis ...")
     plot_eigenvalue_analysis(data)
 
     print(f"\nDone. Outputs saved to {os.path.abspath(OUTPUT_DIR)}")

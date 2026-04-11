@@ -1,10 +1,10 @@
 """
 hmm_strategy.py
 ---------------
-JC's HMM + Hurst strategy logic.
+HMM + Hurst strategy logic.
 
 Core components:
-  - HMM regime fitting (2 or 3 states) with BIC selection
+  - HMM regime fitting (2 states) with BIC selection
   - Rolling Hurst exponent calculation
   - Signal generation: regime + Hurst + momentum
   - Sector-neutral transformation
@@ -19,6 +19,7 @@ import pandas as pd
 from hmmlearn.hmm import GaussianHMM
 from joblib import Parallel, delayed
 from tqdm import tqdm
+from numba import njit
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 
@@ -29,7 +30,7 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 
 
 def _fit_hmm_model(X, n_states):
-    """Fits a Gaussian HMM and returns the model and log-likelihood."""
+    """Fits a Gaussian HMM and returns the model and log-likelihood. Set random_state for reproducibility."""
     model = GaussianHMM(
         n_components=n_states,
         covariance_type="diag",
@@ -100,31 +101,61 @@ def get_ordered_states(model, returns):
 # ---------------------------------------------------------------------------
 
 
-def _mfdfa_fluctuation(profile, window_size, q=2):
-    """Computes MFDFA fluctuation F_q(s) for a specific window size and q-order."""
+@njit
+def _fast_linear_fit_residuals(x, y):
+    """Blazing fast 1D linear regression to find residuals (bypasses slow np.polyfit)."""
+    n = len(x)
+    sum_x = np.sum(x)
+    sum_y = np.sum(y)
+    sum_xx = np.sum(x * x)
+    sum_xy = np.sum(x * y)
+    
+    denominator = (n * sum_xx - sum_x * sum_x)
+    if denominator == 0:
+        return np.zeros(n)
+        
+    slope = (n * sum_xy - sum_x * sum_y) / denominator
+    intercept = (sum_y - slope * sum_x) / n
+    
+    trend = slope * x + intercept
+    return y - trend
+
+@njit
+def _mfdfa_fluctuation_numba(profile, window_size, q=2.0):
+    """Computes MFDFA fluctuation F_q(s) optimized with Numba."""
     n = window_size
     N = len(profile)
     num_windows = N // n
     if num_windows == 0:
         return np.nan
+        
     variances = np.zeros(num_windows)
-    x = np.arange(n)
+    x = np.arange(float(n))
+    
     for i in range(num_windows):
         segment = profile[i * n : (i + 1) * n]
-        # Linear fit (polyfit degree 1)
-        coeffs = np.polyfit(x, segment, 1)
-        trend = np.polyval(coeffs, x)
-        residuals = segment - trend
+        residuals = _fast_linear_fit_residuals(x, segment)
         variances[i] = np.mean(residuals**2)
 
-    valid_vars = variances[variances > 0]
-    if len(valid_vars) == 0:
+    # Filter out zero/negative variances safely in numba
+    valid_count = 0
+    for v in variances:
+        if v > 0: valid_count += 1
+        
+    if valid_count == 0:
         return np.nan
 
-    if q == 0:
+    valid_vars = np.zeros(valid_count)
+    idx = 0
+    for v in variances:
+        if v > 0:
+            valid_vars[idx] = v
+            idx += 1
+
+    if q == 0.0:
         return np.exp(0.5 * np.mean(np.log(valid_vars)))
     else:
-        return np.power(np.mean(valid_vars ** (q / 2)), 1 / q)
+        return np.power(np.mean(valid_vars ** (q / 2.0)), 1.0 / q)
 
 
 def compute_mfdfa_hurst(log_returns, q=2, min_window=10, num_windows=15):
@@ -141,7 +172,8 @@ def compute_mfdfa_hurst(log_returns, q=2, min_window=10, num_windows=15):
     )
     window_sizes = window_sizes[window_sizes >= 4]
 
-    fluctuations = np.array([_mfdfa_fluctuation(profile, w, q) for w in window_sizes])
+    # CALLING THE NEW NUMBA FUNCTION HERE
+    fluctuations = np.array([_mfdfa_fluctuation_numba(profile, w, float(q)) for w in window_sizes])
     valid = (fluctuations > 0) & ~np.isnan(fluctuations)
 
     if np.sum(valid) < 3:
@@ -173,65 +205,51 @@ def calculate_rolling_hurst(log_return_series, window=100, q=2):
 # ---------------------------------------------------------------------------
 
 
-def _apply_strategy_rules(df, model, n_states, hurst_window=100, momentum_periods=5):
+def _apply_strategy_rules(df, model, n_states, hurst_window, momentum_periods, hurst_upper, hurst_lower, holding_days):
     """Apply HMM regime + Hurst + Momentum signal integration."""
     df["Regime"] = get_ordered_states(model, df["Log_Return"])
 
     # Micro: Hurst Exponent
     df["Hurst"] = calculate_rolling_hurst(df["Log_Return"], window=hurst_window, q=2)
 
-    # Tactical: Momentum (5-day return)
+    # Tactical: Momentum
     df["Momentum"] = df["Close"].pct_change(periods=momentum_periods)
 
     # Signal Integration Logic (VECTORIZED)
     df["Signal"] = 0
 
-    is_lowest_vol = df["Regime"] == 0
-    is_highest_vol = df["Regime"] == (n_states - 1)
+    is_low_vol = df["Regime"] == 0
+    is_med_vol = df["Regime"] == 1
+    is_high_vol = df["Regime"] == (n_states - 1)
 
-    high_hurst, low_hurst = df["Hurst"] > 0.55, df["Hurst"] < 0.45
+    # Thresholds
+    high_hurst, low_hurst = df["Hurst"] > hurst_upper, df["Hurst"] < hurst_lower
     pos_mom, neg_mom = df["Momentum"] > 0, df["Momentum"] < 0
 
-    # RULES
-    df.loc[is_lowest_vol & high_hurst & pos_mom, "Signal"] = 1
-    df.loc[is_lowest_vol & low_hurst, "Signal"] = -np.sign(df["Momentum"])
-    df.loc[is_highest_vol & high_hurst & neg_mom, "Signal"] = -1
+    # RULES - State 0 (Always Active: Trend + Mean Reversion)
+    df.loc[is_low_vol & high_hurst & pos_mom, "Signal"] = 1
+    df.loc[is_low_vol & low_hurst, "Signal"] = -np.sign(df["Momentum"])
+
+    # RULES - State 1 (Tactical: Only if 3 states exist)
+    if n_states == 3:
+        # In medium vol, we only take trend-following signals with momentum confirmation
+        df.loc[is_med_vol & high_hurst & pos_mom, "Signal"] = 1
+
+    # RULES - Highest State (SAFE HARBOR: Always Cash)
+    df.loc[is_high_vol, "Signal"] = 0 
 
     # Clean up: NAs in Hurst/Momentum don't trigger signals
     df.loc[df["Hurst"].isna() | df["Momentum"].isna(), "Signal"] = 0
 
-    # --- Signal Holding Period Filter ---
-    # Only allow a signal change if the new signal persists for
-    # `holding_days` consecutive days.  This filters out noise-driven flips.
-    holding_days = 5
-    raw_signal = df["Signal"].copy()
-    stable_signal = raw_signal.iloc[0]
-    streak = 1
-    filtered = [stable_signal]
-
-    for i in range(1, len(raw_signal)):
-        curr = raw_signal.iloc[i]
-        if curr == stable_signal:
-            streak += 1
-            filtered.append(stable_signal)
-        else:
-            streak += 1
-            if streak >= holding_days and curr != stable_signal:
-                # check if the last `holding_days` values are all `curr`
-                pass
-            # count consecutive same values ending at i
-            consec = 1
-            for j in range(i - 1, max(i - holding_days, -1), -1):
-                if raw_signal.iloc[j] == curr:
-                    consec += 1
-                else:
-                    break
-            if consec >= holding_days:
-                stable_signal = curr
-                streak = 1
-            filtered.append(stable_signal)
-
-    df["Signal"] = np.array(filtered, dtype=float)
+    # --- Signal Holding Period Filter (VECTORIZED) ---
+    # Only allow a signal change if the new signal persists for `holding_days` consecutive days.
+    rolling_min = df["Signal"].rolling(window=holding_days).min()
+    rolling_max = df["Signal"].rolling(window=holding_days).max()
+    # 2. If min == max, the signal has been identical for 'holding_days' straight
+    is_stable = rolling_min == rolling_max
+    
+    # 3. Keep the signal where stable, otherwise forward-fill the last stable signal
+    df["Signal"] = df["Signal"].where(is_stable).ffill().fillna(df["Signal"].iloc[0])
 
     # Shift signal to avoid look-ahead bias
     df["Position"] = df["Signal"].shift(1).fillna(0)
@@ -239,40 +257,32 @@ def _apply_strategy_rules(df, model, n_states, hurst_window=100, momentum_period
 
     return df
 
-
 # ---------------------------------------------------------------------------
 # 4.5 Risk Forecasting (GARCH 1-Day VaR)
 # ---------------------------------------------------------------------------
 
 
 def calculate_var_forecast(log_returns):
-    """Calculates 1-day 99% VaR using GARCH(1,1) or rolling std dev fallback."""
-    try:
-        from arch import arch_model
-
-        returns_pct = log_returns.dropna() * 100
-        am = arch_model(returns_pct, vol="Garch", p=1, q=1, dist="Normal")
-        res = am.fit(disp="off")
-        # conditional_volatility[t] is the forecast for t based on t-1.
-        # We shift(-1) so the value at index t represents the forecast for t+1.
-        cond_vol = res.conditional_volatility.shift(-1) / 100.0
-    except ImportError:
-        # Fallback to rolling standard deviation if arch is not installed
-        cond_vol = log_returns.rolling(window=20, min_periods=5).std()
-    except Exception:
-        return pd.Series(np.nan, index=log_returns.index)
-
+    """Calculates 1-day 99% VaR using EWMA volatility."""
+    # Center returns
+    returns = log_returns.dropna()
+    mean_return = returns.mean()
+    
+    # Calculate EWMA variance (lambda=0.94 is RiskMetrics standard for daily data)
+    ewma_var = (returns - mean_return)**2
+    ewma_var = ewma_var.ewm(alpha=1-0.94, adjust=False).mean()
+    
+    cond_vol = np.sqrt(ewma_var).shift(-1)
+    
     var_95 = 1.645 * cond_vol
-    # ffill() propagates the last known risk through any missing periods
     return var_95.reindex(log_returns.index).ffill().fillna(0)
-
 
 # ---------------------------------------------------------------------------
 # 5. Single Asset Processing
 # ---------------------------------------------------------------------------
 
 
-def process_single_asset(price_series, log_return_series, n_states):
+def process_single_asset(price_series, log_return_series, n_states, hurst_window, momentum_periods, hurst_upper, hurst_lower, holding_days):
     """Applies the strategy logic to a single asset."""
     valid_price = price_series.dropna()
     valid_log_return = log_return_series.dropna()
@@ -287,12 +297,12 @@ def process_single_asset(price_series, log_return_series, n_states):
     # fit_hmm_regimes.  Inside, .values.reshape(-1,1) interleaves both columns
     # into a single 1-D sequence fed to the HMM.  This is what produced JC's
     # published results, so we replicate it exactly here.
-    bic_df, model = fit_hmm_regimes(df, n_states=n_states)
+    bic_df, model = fit_hmm_regimes(df["Log_Return"], n_states=n_states)
 
     if model is None:
         return pd.DataFrame(), pd.DataFrame()
 
-    df = _apply_strategy_rules(df, model, n_states)
+    df = _apply_strategy_rules(df, model, n_states, hurst_window, momentum_periods, hurst_upper, hurst_lower, holding_days)
     df["VaR"] = calculate_var_forecast(df["Log_Return"])
 
     return df[["Log_Return", "Strategy_Return", "Signal", "VaR"]], bic_df
@@ -303,13 +313,13 @@ def process_single_asset(price_series, log_return_series, n_states):
 # ---------------------------------------------------------------------------
 
 
-def process_ticker(ticker, price_series, log_return_series, n_states):
+def process_ticker(ticker, price_series, log_return_series, n_states, hurst_window, momentum_periods, hurst_upper, hurst_lower, holding_days):
     """Helper function to process a single ticker for parallel execution."""
-    asset_data, bic_df = process_single_asset(price_series, log_return_series, n_states)
+    asset_data, bic_df = process_single_asset(price_series, log_return_series, n_states, hurst_window, momentum_periods, hurst_upper, hurst_lower, holding_days)
     return ticker, asset_data, bic_df
 
 
-def process_universe(df_prices, n_states, tickers_csv_path):
+def process_universe(df_prices, n_states, tickers_csv_path, hurst_window, momentum_periods, hurst_upper, hurst_lower, holding_days):
     """
     Processes all assets with sector-neutral transformation.
 
@@ -323,12 +333,12 @@ def process_universe(df_prices, n_states, tickers_csv_path):
     -------
     strat_returns, bh_returns, signals, bic_all : DataFrames
     """
-    print(f"Processing assets and extracting indicators for {n_states} states...")
+    print(f"Processing assets for states={n_states}, H={hurst_window}, M={momentum_periods}, U={hurst_upper}, L={hurst_lower}, HD={holding_days}...")
 
     tickers = pd.read_csv(tickers_csv_path, header=None)
     tickers.columns = ["ticker", "gics"]
     tickers["sector"] = tickers["gics"].apply(
-        lambda x: str(x)[:4] if x is not None else None
+        lambda x: str(x)[:2] if x is not None else None
     )
     tickers["industry"] = tickers["gics"].apply(
         lambda x: str(x)[:6] if x is not None else None
@@ -352,7 +362,7 @@ def process_universe(df_prices, n_states, tickers_csv_path):
     print(f"  Dispatching {len(df_prices.columns)} assets to CPU worker pool...")
     results = Parallel(n_jobs=-1)(
         delayed(process_ticker)(
-            ticker, df_prices[ticker], df_log_return_neutral[ticker], n_states
+            ticker, df_prices[ticker], df_log_return_neutral[ticker], n_states, hurst_window, momentum_periods, hurst_upper, hurst_lower, holding_days
         )
         for ticker in tqdm(df_prices.columns, desc="Dispatching Tasks")
     )

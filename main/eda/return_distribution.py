@@ -1,7 +1,7 @@
 """
 eda/return_distribution.py
 --------------------------
-Part 1 – Return distributions & stylized facts
+Part 1 - Return distributions & stylized facts
 
 Analyses:
   1. Daily, weekly, monthly return histograms vs normal overlay
@@ -39,7 +39,7 @@ plt.rcParams.update(
 )
 
 
-# ── helpers ──────────────────────────────────────────────────────────────────
+#  helpers 
 
 
 def _build_market_index(data: dict) -> pd.Series:
@@ -65,7 +65,7 @@ def _to_freq(daily_ret: pd.Series, rule: str) -> pd.Series:
     return daily_ret.resample(rule).apply(lambda x: (1 + x).prod() - 1).dropna()
 
 
-# ── 1. Return histograms with normal overlay ────────────────────────────────
+#  1. Return histograms with normal overlay 
 
 
 def plot_return_histograms(daily_ret: pd.Series) -> None:
@@ -100,10 +100,10 @@ def plot_return_histograms(daily_ret: pd.Series) -> None:
     fig.tight_layout()
     fig.savefig(os.path.join(OUTPUT_DIR, "01_return_histograms.png"))
     plt.close(fig)
-    print("  ✓ 01_return_histograms.png")
+    print("  [DONE] 01_return_histograms.png")
 
 
-# ── 2. QQ plots ─────────────────────────────────────────────────────────────
+#  2. QQ plots 
 
 
 def plot_qq(daily_ret: pd.Series) -> None:
@@ -117,17 +117,17 @@ def plot_qq(daily_ret: pd.Series) -> None:
         ["Daily", "Weekly", "Monthly"],
     ):
         stats.probplot(series, dist="norm", plot=ax)
-        ax.set_title(f"QQ – {label}")
+        ax.set_title(f"QQ - {label}")
         ax.get_lines()[0].set(markersize=2, alpha=0.5)
 
     fig.suptitle("QQ plots against Normal distribution", fontsize=13, y=1.02)
     fig.tight_layout()
     fig.savefig(os.path.join(OUTPUT_DIR, "02_qq_plots.png"))
     plt.close(fig)
-    print("  ✓ 02_qq_plots.png")
+    print("  [DONE] 02_qq_plots.png")
 
 
-# ── 3. Summary statistics table ─────────────────────────────────────────────
+#  3. Summary statistics table 
 
 
 def summary_statistics(daily_ret: pd.Series) -> pd.DataFrame:
@@ -159,12 +159,12 @@ def summary_statistics(daily_ret: pd.Series) -> pd.DataFrame:
     df.to_csv(
         os.path.join(OUTPUT_DIR, "03_summary_statistics.csv"), float_format="%.4f"
     )
-    print("  ✓ 03_summary_statistics.csv")
+    print("  [DONE] 03_summary_statistics.csv")
     print(df.to_string())
     return df
 
 
-# ── 4. Autocorrelation: returns vs |returns| (volatility clustering) ────────
+#  4. Autocorrelation: returns vs |returns| (volatility clustering) 
 
 
 def plot_autocorrelation(daily_ret: pd.Series, max_lag: int = 60) -> None:
@@ -186,15 +186,15 @@ def plot_autocorrelation(daily_ret: pd.Series, max_lag: int = 60) -> None:
     ax.axhline(0, color="grey", lw=0.5)
     ax.set_xlabel("Lag (days)")
     ax.set_ylabel("Autocorrelation")
-    ax.set_title("Autocorrelation of returns vs |returns| — volatility clustering")
+    ax.set_title("Autocorrelation of returns vs |returns| - volatility clustering")
     ax.legend()
     fig.tight_layout()
     fig.savefig(os.path.join(OUTPUT_DIR, "04_autocorrelation.png"))
     plt.close(fig)
-    print("  ✓ 04_autocorrelation.png")
+    print("  [DONE] 04_autocorrelation.png")
 
 
-# ── 5. Rolling kurtosis ─────────────────────────────────────────────────────
+#  5. Rolling kurtosis 
 
 
 def plot_rolling_kurtosis(daily_ret: pd.Series, window: int = 252) -> None:
@@ -210,10 +210,10 @@ def plot_rolling_kurtosis(daily_ret: pd.Series, window: int = 252) -> None:
     fig.tight_layout()
     fig.savefig(os.path.join(OUTPUT_DIR, "05_rolling_kurtosis.png"))
     plt.close(fig)
-    print("  ✓ 05_rolling_kurtosis.png")
+    print("  [DONE] 05_rolling_kurtosis.png")
 
 
-# ── 6. Cross-sectional return distribution snapshot ─────────────────────────
+#  6. Cross-sectional return distribution snapshot 
 
 
 def plot_cross_sectional_snapshot(data: dict) -> None:
@@ -247,25 +247,30 @@ def plot_cross_sectional_snapshot(data: dict) -> None:
     fig.tight_layout()
     fig.savefig(os.path.join(OUTPUT_DIR, "06_cross_sectional_annual.png"))
     plt.close(fig)
-    print("  ✓ 06_cross_sectional_annual.png")
+    print("  [DONE] 06_cross_sectional_annual.png")
 
 
-# ── main ─────────────────────────────────────────────────────────────────────
+#  main 
 
 
-def main():
-    print("Loading data …")
-    data = load_all_data()
+def main(data=None, output_dir=None):
+    global OUTPUT_DIR
+    if output_dir:
+        OUTPUT_DIR = output_dir
 
-    print("Building market-cap weighted index …")
+    if data is None:
+        print("Loading data ...")
+        data = load_all_data()
+
+    print("Building market-cap weighted index ...")
     daily_ret = _build_market_index(data)
 
     print(
-        f"Market index: {daily_ret.index[0].date()} → {daily_ret.index[-1].date()} "
+        f"Market index: {daily_ret.index[0].date()} to {daily_ret.index[-1].date()} "
         f"({len(daily_ret)} days)\n"
     )
 
-    print("Running EDA – Return distributions & stylized facts")
+    print("Running EDA - Return distributions & stylized facts")
     print("=" * 55)
     plot_return_histograms(daily_ret)
     plot_qq(daily_ret)

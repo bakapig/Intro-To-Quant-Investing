@@ -1,7 +1,7 @@
 """
 eda/survivorship_analysis.py
 ----------------------------
-Part 8 – Survivorship & universe dynamics
+Part 8 - Survivorship & universe dynamics
 
 Analyses:
   1. Universe size & entry/exit counts per year
@@ -29,7 +29,7 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 plt.rcParams.update({"figure.dpi": 150, "savefig.bbox": "tight", "font.size": 10})
 
 
-# ── helpers ──────────────────────────────────────────────────────────────────
+#  helpers 
 
 
 def _universe_by_year(data: dict) -> dict:
@@ -44,11 +44,11 @@ def _universe_by_year(data: dict) -> dict:
     return result
 
 
-# ── Analysis 1: Universe dynamics ────────────────────────────────────────────
+#  Analysis 1: Universe dynamics 
 
 
 def plot_universe_dynamics(data: dict) -> pd.DataFrame:
-    print("  1. Universe dynamics (entries / exits per year) …")
+    print("  1. Universe dynamics (entries / exits per year) ...")
 
     univ = _universe_by_year(data)
     years = sorted(univ.keys())
@@ -72,7 +72,7 @@ def plot_universe_dynamics(data: dict) -> pd.DataFrame:
 
     df = pd.DataFrame(records)
     df.to_csv(os.path.join(OUTPUT_DIR, "28_universe_dynamics.csv"), index=False)
-    print("    ✓ 28_universe_dynamics.csv")
+    print("    [DONE] 28_universe_dynamics.csv")
 
     fig, axes = plt.subplots(2, 1, figsize=(14, 9), sharex=True)
 
@@ -106,17 +106,17 @@ def plot_universe_dynamics(data: dict) -> pd.DataFrame:
     fig.tight_layout()
     fig.savefig(os.path.join(OUTPUT_DIR, "28_universe_dynamics.png"))
     plt.close(fig)
-    print("    ✓ 28_universe_dynamics.png")
+    print("    [DONE] 28_universe_dynamics.png")
     print(df.to_string(index=False))
 
     return df
 
 
-# ── Analysis 2: Return characteristics of entrants vs exiters ────────────────
+#  Analysis 2: Return characteristics of entrants vs exiters 
 
 
 def plot_entry_exit_returns(data: dict) -> None:
-    print("\n  2. Return characteristics of entering vs. exiting stocks …")
+    print("\n  2. Return characteristics of entering vs. exiting stocks ...")
 
     univ = _universe_by_year(data)
     adj = data["adjusted"]
@@ -175,7 +175,7 @@ def plot_entry_exit_returns(data: dict) -> None:
 
     df = pd.DataFrame(records)
     df.to_csv(os.path.join(OUTPUT_DIR, "29_entry_exit_returns.csv"), index=False)
-    print("    ✓ 29_entry_exit_returns.csv")
+    print("    [DONE] 29_entry_exit_returns.csv")
 
     fig, ax = plt.subplots(figsize=(14, 6))
     x = df["Year"]
@@ -207,14 +207,14 @@ def plot_entry_exit_returns(data: dict) -> None:
     fig.tight_layout()
     fig.savefig(os.path.join(OUTPUT_DIR, "29_entry_exit_returns.png"))
     plt.close(fig)
-    print("    ✓ 29_entry_exit_returns.png")
+    print("    [DONE] 29_entry_exit_returns.png")
 
 
-# ── Analysis 3: Survivorship bias ────────────────────────────────────────────
+#  Analysis 3: Survivorship bias 
 
 
 def plot_survivorship_bias(data: dict) -> None:
-    print("\n  3. Survivorship bias comparison …")
+    print("\n  3. Survivorship bias comparison ...")
 
     adj = data["adjusted"]
     mktcap = data["mktcap"]
@@ -317,7 +317,7 @@ def plot_survivorship_bias(data: dict) -> None:
     fig.tight_layout()
     fig.savefig(os.path.join(OUTPUT_DIR, "30_survivorship_bias.png"))
     plt.close(fig)
-    print("    ✓ 30_survivorship_bias.png")
+    print("    [DONE] 30_survivorship_bias.png")
 
     # Summary stats
     def _ann_stats(ret_series):
@@ -342,22 +342,27 @@ def plot_survivorship_bias(data: dict) -> None:
     ).T
     summary.index.name = "Index"
     summary.to_csv(os.path.join(OUTPUT_DIR, "30_survivorship_bias_summary.csv"))
-    print("    ✓ 30_survivorship_bias_summary.csv")
+    print("    [DONE] 30_survivorship_bias_summary.csv")
     print(summary.round(4).to_string())
 
 
-# ── main ─────────────────────────────────────────────────────────────────────
+#  main 
 
 
-def main():
-    print("Loading data …")
-    data = load_all_data()
+def main(data=None, output_dir=None):
+    global OUTPUT_DIR
+    if output_dir:
+        OUTPUT_DIR = output_dir
+
+    if data is None:
+        print("Loading data ...")
+        data = load_all_data()
 
     plot_universe_dynamics(data)
     plot_entry_exit_returns(data)
     plot_survivorship_bias(data)
 
-    print("\n✓ Part 8 complete – survivorship analysis saved to output/eda/")
+    print("\n[DONE] Part 8 complete - survivorship analysis saved to output/eda/")
 
 
 if __name__ == "__main__":

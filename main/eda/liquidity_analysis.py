@@ -1,7 +1,7 @@
 """
 eda/liquidity_analysis.py
 -------------------------
-Part 5 – Liquidity analysis
+Part 5 - Liquidity analysis
 
 Analyses:
   1. Amihud illiquidity ratio (|return| / dollar volume) over time
@@ -27,9 +27,15 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 plt.rcParams.update({"figure.dpi": 150, "savefig.bbox": "tight", "font.size": 10})
 
 
-def main():
-    # ── Load data ────────────────────────────────────────────────────────────
-    data = load_all_data()
+def main(data=None, output_dir=None):
+    global OUTPUT_DIR
+    if output_dir:
+        OUTPUT_DIR = output_dir
+
+    if data is None:
+        print("Loading data ...")
+        data = load_all_data()
+    #  Load data 
     adj = data["adjusted"]
     dv = data["dv"]
     mktcap = data["mktcap"]
@@ -46,8 +52,8 @@ def main():
     mkt_ret = (returns * weights.shift(1)).sum(axis=1).dropna()
     mkt_cum = (1 + mkt_ret).cumprod()
 
-    # ── 1. Amihud illiquidity ratio ──────────────────────────────────────────
-    print("1/3  Amihud illiquidity ratio …")
+    #  1. Amihud illiquidity ratio 
+    print("1/3  Amihud illiquidity ratio ...")
 
     abs_ret = returns.abs()
     dv_safe = dv.replace(0, np.nan)
@@ -64,7 +70,7 @@ def main():
         linewidth=1,
         label="Amihud illiquidity (60d median)",
     )
-    ax1.set_ylabel("Amihud ratio (×10⁶)", color="crimson")
+    ax1.set_ylabel("Amihud ratio (10)", color="crimson")
     ax1.tick_params(axis="y", labelcolor="crimson")
 
     ax2 = ax1.twinx()
@@ -88,10 +94,10 @@ def main():
     fig.tight_layout()
     fig.savefig(os.path.join(OUTPUT_DIR, "17_amihud_illiquidity.png"))
     plt.close(fig)
-    print("   → saved 17_amihud_illiquidity.png")
+    print("   -> saved 17_amihud_illiquidity.png")
 
-    # ── 2. Turnover distribution & relationship to future returns ────────────
-    print("2/3  Turnover vs future returns …")
+    #  2. Turnover distribution & relationship to future returns 
+    print("2/3  Turnover vs future returns ...")
 
     turnover = dv / mktcap
     turnover = turnover.replace([np.inf, -np.inf], np.nan)
@@ -134,7 +140,7 @@ def main():
     for q in range(1, 6):
         s = pd.Series(quintile_returns[q])
         ann_rets[f"Q{q}"] = ((1 + s.mean()) ** 12 - 1) * 100
-    ann_rets["L/S\n(Q1−Q5)"] = ann_rets["Q1"] - ann_rets["Q5"]
+    ann_rets["L/S\n(Q1-Q5)"] = ann_rets["Q1"] - ann_rets["Q5"]
     colors = ["#2166ac", "#67a9cf", "#d1e5f0", "#fddbc7", "#ef8a62", "#b2182b"]
     axes[1].bar(ann_rets.keys(), ann_rets.values(), color=colors)
     axes[1].set_title("Annualized Return by Turnover Quintile")
@@ -146,10 +152,10 @@ def main():
     fig.tight_layout()
     fig.savefig(os.path.join(OUTPUT_DIR, "18_turnover_vs_returns.png"))
     plt.close(fig)
-    print("   → saved 18_turnover_vs_returns.png")
+    print("   -> saved 18_turnover_vs_returns.png")
 
-    # ── 3. Liquidity drying up during drawdowns ─────────────────────────────
-    print("3/3  Liquidity during drawdowns …")
+    #  3. Liquidity drying up during drawdowns 
+    print("3/3  Liquidity during drawdowns ...")
 
     running_max = mkt_cum.cummax()
     drawdown = (mkt_cum / running_max) - 1
@@ -160,15 +166,15 @@ def main():
     regime = pd.cut(
         drawdown,
         bins=[-np.inf, -0.20, -0.05, 0],
-        labels=["Bear (<−20%)", "Correction (−20%→−5%)", "Normal (>−5%)"],
+        labels=["Bear (<-20%)", "Correction (-20%->-5%)", "Normal (>-5%)"],
     )
 
     fig, axes = plt.subplots(2, 1, figsize=(14, 8), sharex=True)
 
     colors_map = {
-        "Normal (>−5%)": "#a1d99b",
-        "Correction (−20%→−5%)": "#fdae6b",
-        "Bear (<−20%)": "#e34a33",
+        "Normal (>-5%)": "#a1d99b",
+        "Correction (-20%->-5%)": "#fdae6b",
+        "Bear (<-20%)": "#e34a33",
     }
     axes[0].fill_between(
         drawdown.index, drawdown.values, 0, color="lightcoral", alpha=0.4
@@ -189,7 +195,7 @@ def main():
             alpha=0.7,
             label=label,
         )
-    axes[1].set_ylabel("Agg. dollar volume (¥ bn, 20d MA)")
+    axes[1].set_ylabel("Agg. dollar volume ( bn, 20d MA)")
     axes[1].legend(fontsize=8, loc="upper left")
     axes[1].xaxis.set_major_locator(mdates.YearLocator(2))
     axes[1].xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
@@ -197,11 +203,11 @@ def main():
     fig.tight_layout()
     fig.savefig(os.path.join(OUTPUT_DIR, "19_liquidity_drawdowns.png"))
     plt.close(fig)
-    print("   → saved 19_liquidity_drawdowns.png")
+    print("   -> saved 19_liquidity_drawdowns.png")
 
-    # ── Summary table ────────────────────────────────────────────────────────
+    #  Summary table 
     summary_rows = []
-    for label in ["Normal (>−5%)", "Correction (−20%→−5%)", "Bear (<−20%)"]:
+    for label in ["Normal (>-5%)", "Correction (-20%->-5%)", "Bear (<-20%)"]:
         mask = regime == label
         idx = mask[mask].index
         avg_to = turnover.loc[turnover.index.isin(idx)].median(axis=1).mean()
@@ -211,8 +217,8 @@ def main():
             {
                 "Regime": label,
                 "Avg daily turnover (median)": f"{avg_to:.4f}",
-                "Avg Amihud (×10⁶)": f"{avg_am:.4f}",
-                "Avg agg DV (¥ bn)": f"{avg_dv_bn:.1f}",
+                "Avg Amihud (10)": f"{avg_am:.4f}",
+                "Avg agg DV ( bn)": f"{avg_dv_bn:.1f}",
                 "# days": int(mask.sum()),
             }
         )
@@ -220,9 +226,9 @@ def main():
     summary.to_csv(
         os.path.join(OUTPUT_DIR, "20_liquidity_regime_summary.csv"), index=False
     )
-    print("   → saved 20_liquidity_regime_summary.csv")
+    print("   -> saved 20_liquidity_regime_summary.csv")
     print("\n" + summary.to_string(index=False))
-    print("\nDone – liquidity analysis complete.")
+    print("\nDone - liquidity analysis complete.")
 
 
 if __name__ == "__main__":

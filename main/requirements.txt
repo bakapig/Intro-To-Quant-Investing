@@ -10,3 +10,5 @@ tqdm
 hurst
 scipy
 statsmodels
+pyarrow
+numba
