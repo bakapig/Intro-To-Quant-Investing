@@ -27,9 +27,15 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 plt.rcParams.update({"figure.dpi": 150, "savefig.bbox": "tight", "font.size": 10})
 
 
-def main():
+def main(data=None, output_dir=None):
+    global OUTPUT_DIR
+    if output_dir:
+        OUTPUT_DIR = output_dir
+
+    if data is None:
+        print("Loading data …")
+        data = load_all_data()
     # ── Load data ────────────────────────────────────────────────────────────
-    data = load_all_data()
     adj = data["adjusted"]
     dv = data["dv"]
     mktcap = data["mktcap"]

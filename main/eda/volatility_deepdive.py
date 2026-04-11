@@ -29,9 +29,15 @@ plt.rcParams.update({"figure.dpi": 150, "savefig.bbox": "tight", "font.size": 10
 WINDOW = 20  # 1-month rolling
 
 
-def main():
+def main(data=None, output_dir=None):
     # ── Load data ────────────────────────────────────────────────────────────
-    data = load_all_data()
+    global OUTPUT_DIR
+    if output_dir:
+        OUTPUT_DIR = output_dir
+
+    if data is None:
+        print("Loading data …")
+        data = load_all_data()
     adj = data["adjusted"]
     high = data["high"]
     low = data["low"]

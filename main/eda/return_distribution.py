@@ -253,9 +253,14 @@ def plot_cross_sectional_snapshot(data: dict) -> None:
 # ── main ─────────────────────────────────────────────────────────────────────
 
 
-def main():
-    print("Loading data …")
-    data = load_all_data()
+def main(data=None, output_dir=None):
+    global OUTPUT_DIR
+    if output_dir:
+        OUTPUT_DIR = output_dir
+
+    if data is None:
+        print("Loading data …")
+        data = load_all_data()
 
     print("Building market-cap weighted index …")
     daily_ret = _build_market_index(data)

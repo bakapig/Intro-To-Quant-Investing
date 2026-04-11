@@ -21,8 +21,10 @@ from matplotlib.colors import ListedColormap
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+import config
 from data_loader import load_all_data
+from hmm_strategy import get_ordered_states
+from hmmlearn.hmm import GaussianHMM
 
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "..", "output", "eda")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -412,16 +414,38 @@ def plot_factor_by_regime(regimes: pd.DataFrame, data: dict) -> None:
 # ── main ─────────────────────────────────────────────────────────────────────
 
 
-def main():
-    print("Loading data …")
-    data = load_all_data()
+def main(data=None, output_dir=None):
+    global OUTPUT_DIR
+    if output_dir:
+        OUTPUT_DIR = output_dir
 
-    print("Loading regime labels …")
-    regimes = pd.read_csv(
-        os.path.join(os.path.dirname(__file__), "..", "regimes_output.csv"),
-        parse_dates=["Date"],
-    )
-    regimes.set_index("Date", inplace=True)
+    if data is None:
+        print("Loading data …")
+        data = load_all_data()
+
+    print("Preparing regime labels …")
+    regime_file = os.path.join(os.path.dirname(__file__), "..", "regimes_output.csv")
+    
+    if os.path.exists(regime_file):
+        regimes = pd.read_csv(regime_file, parse_dates=["Date"])
+        regimes.set_index("Date", inplace=True)
+    else:
+        print("  Signal file not found. Fitting HMM on Market Index returns on-the-fly...")
+        idx = _build_market_index(data)
+        log_ret = np.log(idx / idx.shift(1)).dropna()
+        
+        # Fit HMM on Market Returns
+        X = log_ret.values.reshape(-1, 1)
+        model = GaussianHMM(n_components=config.N_STATES, covariance_type="full", n_iter=1000, random_state=42)
+        model.fit(X)
+        
+        # Generate labels
+        states = get_ordered_states(model, log_ret)
+        regimes = pd.DataFrame(index=log_ret.index)
+        regimes["regime_label"] = states
+        # Map 0/1 to descriptive labels if needed, or just use strings
+        label_map = {0: "trending", 1: "mean_reverting"} if config.N_STATES == 2 else {0: "trending", 1: "random_walk", 2: "mean_reverting"}
+        regimes["regime_label"] = regimes["regime_label"].map(label_map).fillna("random_walk")
 
     plot_regime_context(regimes, data)
     plot_transition_matrix(regimes)

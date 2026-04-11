@@ -22,12 +22,13 @@ import backtrader as bt
 
 
 def generate_target_weights(
-    signals_df, df_mcap, is_buy_and_hold=False, df_var=None, target_risk=0.01
+    signals_df, df_mcap, is_buy_and_hold=False, df_var=None, target_risk=0.01, constituent_df=None
 ):
     """
     Converts signals and market caps into target portfolio weights.
     If is_buy_and_hold=True, ignores signals and buys the market-cap weighted index.
     If df_var is provided, uses Inverse VaR (Risk Parity) weighting instead of Market Cap.
+    If constituent_df is provided, masks weights to only include stocks marked '1'.
     """
     print("Generating Target Weights for Backtrader...")
 
@@ -68,6 +69,12 @@ def generate_target_weights(
     execution_mcap = df_mcap.shift(1)
 
     active_mcap = execution_mcap.where(execution_signals != 0)
+    
+    # 3. Apply constituent mask if provided (univ_h)
+    if constituent_df is not None:
+        mask = constituent_df.reindex(index=signals_df.index, columns=signals_df.columns).shift(1).fillna(0)
+        active_mcap = active_mcap.where(mask == 1)
+
     normalized_weights = active_mcap.div(active_mcap.sum(axis=1), axis=0).fillna(0)
     target_weights = normalized_weights * execution_signals
 
@@ -134,9 +141,9 @@ class SignalData(bt.feeds.PandasData):
     lines = ("target_weight",)
     params = (
         ("datetime", None),
-        ("open", "Close"),
-        ("high", "Close"),
-        ("low", "Close"),
+        ("open", "Open"),
+        ("high", "Open"),
+        ("low", "Open"),
         ("close", "Close"),
         ("volume", -1),
         ("openinterest", -1),
@@ -160,13 +167,15 @@ class DetailedExecutionStrategy(bt.Strategy):
         ("elder_max_dd", 0.06),  # 6% Rule (max monthly drawdown)
         ("rebalance_day", 0),  # 0=Monday. Only rebalance on this weekday.
         ("min_weight_change", 0.005),  # 0.5% threshold to trigger a trade
+        ("rebalance_freq", "W"),  # 'W' (Weekly), 'M' (Monthly), 'Q' (Quarterly), 'D' (Daily)
     )
 
     def __init__(self):
         self.logger = self.p.logger
-        self.month_start_value = None
         self.current_month = None
+        self.month_start_value = None
         self.trading_halted = False
+        self.last_period_id = None  # To track week/month/quarter changes
 
         # Used to ensure we rebalance exactly once per week, ignoring holidays
         self.last_rebalance_week = None 
@@ -224,8 +233,9 @@ class DetailedExecutionStrategy(bt.Strategy):
     def next(self):
         current_date = self.datas[0].datetime.date(0)
 
+        # 1. Elder Rules Logic (drawdown monitoring)
         if self.p.use_elder_rules:
-            # Evaluate at the start of a new month
+            # Monthly reset for Elder Rules
             if self.current_month != current_date.month:
                 self.current_month = current_date.month
                 self.month_start_value = self.broker.getvalue()
@@ -233,7 +243,6 @@ class DetailedExecutionStrategy(bt.Strategy):
                     self.log("ELDER 6% RULE: New month started. Trading resumed.")
                 self.trading_halted = False
 
-            # Monitor the 6% Rule monthly drawdown threshold
             if (
                 not self.trading_halted
                 and self.month_start_value is not None
@@ -246,15 +255,8 @@ class DetailedExecutionStrategy(bt.Strategy):
                     self.log(
                         f"ELDER 6% RULE TRIGGERED: Monthly DD {current_dd*100:.2f}%. Halting trading."
                     )
-                    if self.logger:
-                        self.logger.info(
-                            f"{current_date.isoformat()} | ELDER 6% RULE: Liquidating portfolio for the month."
-                        )
                     self.trading_halted = True
-                    for data in self.datas:
-                        if self.getposition(data).size != 0:
-                            self.order_target_percent(data, target=0.0)
-
+            
             if self.trading_halted:
                 return
         
@@ -287,13 +289,14 @@ class DetailedExecutionStrategy(bt.Strategy):
                 if portfolio_value <= 0:
                     return
 
-                if data.close[0] > 0:
+                # Handle Delistings: If price is NaN or zero, target becomes 0
+                if np.isnan(data.close[0]) or data.close[0] <= 0:
+                    target_shares = 0
+                else:
                     target_value = portfolio_value * target_pct
                     raw_shares = target_value / data.close[0]
                     # Round down to the nearest 100 shares (1 Board Lot = 100 shares)
                     target_shares = int(raw_shares // 100) * 100
-                else:
-                    target_shares = 0
 
                 current_shares = pos.size if pos else 0
 
@@ -361,7 +364,11 @@ def run_backtrader_engine(
     print_logs=False,
     output_dir="output",
     use_elder_rules=False,
+    elder_max_pos=0.02,
+    elder_max_dd=0.06,
+    rebalance_freq="W",
     console_out=True,
+    StrategyClass=DetailedExecutionStrategy,
 ):
     """Initializes Cerebro, runs the engine, and calculates KPIs."""
     import os
@@ -374,14 +381,33 @@ def run_backtrader_engine(
     if console_out:
         print(f"\nInitializing Backtrader Engine for: {test_name} ...")
 
-    cerebro = bt.Cerebro()
+    cerebro = bt.Cerebro(stdstats=False) # OPTIMIZATION: Disable visual/plotting observers for speed
     cerebro.broker.setcash(starting_cash)
     cerebro.broker.addcommissioninfo(ChinaAShareCommission())
 
-    for ticker in df_prices.columns:
-        asset_df = pd.DataFrame(
-            {"Close": df_prices[ticker], "Target_Weight": target_weights_df[ticker]}
-        ).dropna(subset=["Close"])
+    # OPTIMIZATION: Prefilter tickers that have 0 weight for the entire period
+    # This prevents Backtrader from wasting cycles on assets that are never traded.
+    active_weights = target_weights_df.abs().sum()
+    all_tickers = df_prices.columns.get_level_values(0).unique() if isinstance(df_prices.columns, pd.MultiIndex) else df_prices.columns
+    tickers_to_process = [t for t in all_tickers if t in active_weights.index and active_weights[t] > 0]
+
+    if console_out:
+        print(f"  Filtering universe: {len(all_tickers)} assets -> {len(tickers_to_process)} active assets.")
+
+    for ticker in tickers_to_process:
+        if isinstance(df_prices.columns, pd.MultiIndex):
+            # Expecting columns like (Ticker, 'Close') and (Ticker, 'Open')
+            asset_df = df_prices[ticker].copy()
+            asset_df["Target_Weight"] = target_weights_df[ticker]
+        else:
+            # Fallback for single column Close data
+            asset_df = pd.DataFrame({
+                "Close": df_prices[ticker],
+                "Open": df_prices[ticker], # Fallback to Close if Open is missing
+                "Target_Weight": target_weights_df[ticker]
+            })
+        
+        asset_df = asset_df.dropna(subset=["Close"])
 
         if asset_df.empty:
             continue
@@ -390,10 +416,13 @@ def run_backtrader_engine(
         cerebro.adddata(data)
 
     cerebro.addstrategy(
-        DetailedExecutionStrategy,
+        StrategyClass,
         logger=logger,
         print_logs=print_logs,
         use_elder_rules=use_elder_rules,
+        elder_max_pos=elder_max_pos,
+        elder_max_dd=elder_max_dd,
+        rebalance_freq=rebalance_freq,
     )
 
     cerebro.addanalyzer(bt.analyzers.TradeAnalyzer, _name="trades")
@@ -484,8 +513,15 @@ def run_backtrader_engine(
     # ========================
     # Sharpe
     # ========================
-    sharpe_ratio = strat.analyzers.sharpe.get_analysis().get("sharperatio", 0)
-    sharpe_a_ratio = strat.analyzers.sharpe_a.get_analysis().get("sharperatio", 0)
+    sharpe_analysis = strat.analyzers.sharpe.get_analysis()
+    sharpe_ratio = sharpe_analysis.get("sharperatio", 0)
+    if sharpe_ratio is None:
+        sharpe_ratio = 0.0
+
+    sharpe_a_analysis = strat.analyzers.sharpe_a.get_analysis()
+    sharpe_a_ratio = sharpe_a_analysis.get("sharperatio", 0)
+    if sharpe_a_ratio is None:
+        sharpe_a_ratio = 0.0
 
     # ========================
     # Time Returns → Annual Return

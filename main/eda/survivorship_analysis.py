@@ -349,9 +349,14 @@ def plot_survivorship_bias(data: dict) -> None:
 # ── main ─────────────────────────────────────────────────────────────────────
 
 
-def main():
-    print("Loading data …")
-    data = load_all_data()
+def main(data=None, output_dir=None):
+    global OUTPUT_DIR
+    if output_dir:
+        OUTPUT_DIR = output_dir
+
+    if data is None:
+        print("Loading data …")
+        data = load_all_data()
 
     plot_universe_dynamics(data)
     plot_entry_exit_returns(data)

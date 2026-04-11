@@ -36,14 +36,14 @@ from statsmodels.stats.diagnostic import acorr_ljungbox
 
 warnings.filterwarnings("ignore")
 
+import config
 from data_loader import load_all_data, build_cap_weighted_market_index
 
 # ===========================================================================
 # Configuration
 # ===========================================================================
 
-DATA_DIR = "data_cn"
-OUTPUT_DIR = os.path.join("output", "eda")
+OUTPUT_DIR = os.path.join(config.OUTPUT_DIR, "eda")
 
 
 # ===========================================================================
@@ -51,10 +51,10 @@ OUTPUT_DIR = os.path.join("output", "eda")
 # ===========================================================================
 
 
-def run_data_quality_eda(data):
-    """JC's data quality and market overview analysis."""
+def run_data_quality_eda(data, output_dir):
+    """Data quality and macro baseline analysis."""
     print("\n" + "=" * 60)
-    print("  Part 0: Data Quality & Market Overview")
+    print("  Part 0: Data Quality & Macro Overview")
     print("=" * 60)
 
     df_prices = data["adjusted"]
@@ -105,7 +105,7 @@ def run_data_quality_eda(data):
     plt.title("Number of active assets over time")
     plt.ylabel("Count")
     plt.savefig(
-        os.path.join(OUTPUT_DIR, "00_active_assets.png"), dpi=150, bbox_inches="tight"
+        os.path.join(output_dir, "00_active_assets.png"), dpi=150, bbox_inches="tight"
     )
     plt.close()
 
@@ -115,7 +115,7 @@ def run_data_quality_eda(data):
     plt.title("Distribution of observations per asset")
     plt.xlabel("Non-missing price observations")
     plt.savefig(
-        os.path.join(OUTPUT_DIR, "00_obs_distribution.png"),
+        os.path.join(output_dir, "00_obs_distribution.png"),
         dpi=150,
         bbox_inches="tight",
     )
@@ -135,7 +135,7 @@ def run_data_quality_eda(data):
     plt.ylabel("Normalized level")
     plt.legend()
     plt.savefig(
-        os.path.join(OUTPUT_DIR, "00_normalized_paths.png"),
+        os.path.join(output_dir, "00_normalized_paths.png"),
         dpi=150,
         bbox_inches="tight",
     )
@@ -186,7 +186,7 @@ def run_data_quality_eda(data):
         plt.title(title)
         plt.ylabel(ylabel)
         plt.savefig(
-            os.path.join(OUTPUT_DIR, f"{name}.png"), dpi=150, bbox_inches="tight"
+            os.path.join(output_dir, f"{name}.png"), dpi=150, bbox_inches="tight"
         )
         plt.close()
 
@@ -209,7 +209,7 @@ def run_data_quality_eda(data):
             "lb_sqret_pvalue_lag10": lb_sq.loc[10, "lb_pvalue"],
         }
     )
-    market_diag.to_csv(os.path.join(OUTPUT_DIR, "00_market_diagnostics.csv"))
+    market_diag.to_csv(os.path.join(output_dir, "00_market_diagnostics.csv"))
     print("  Market diagnostics saved.")
 
     # Correlation heatmap
@@ -224,7 +224,7 @@ def run_data_quality_eda(data):
     plt.yticks(range(len(corr_cols)), corr_cols, fontsize=7)
     plt.tight_layout()
     plt.savefig(
-        os.path.join(OUTPUT_DIR, "00_correlation_heatmap.png"),
+        os.path.join(output_dir, "00_correlation_heatmap.png"),
         dpi=150,
         bbox_inches="tight",
     )
@@ -256,7 +256,7 @@ def run_data_quality_eda(data):
         plt.title(title)
         plt.ylabel(ylabel)
         plt.savefig(
-            os.path.join(OUTPUT_DIR, f"{name}.png"), dpi=150, bbox_inches="tight"
+            os.path.join(output_dir, f"{name}.png"), dpi=150, bbox_inches="tight"
         )
         plt.close()
 
@@ -283,7 +283,7 @@ def run_data_quality_eda(data):
             "active_assets": ["mean", "min"],
         }
     )
-    regime_summary.to_csv(os.path.join(OUTPUT_DIR, "00_regime_proxy.csv"))
+    regime_summary.to_csv(os.path.join(output_dir, "00_regime_proxy.csv"))
 
     print("  Part 0 complete.")
 
@@ -317,56 +317,57 @@ def main():
 
     # Load data once
     print("\nLoading data...")
-    data = load_all_data(DATA_DIR)
+    data = load_all_data(config.DATA_DIR)
+    
+    # Filter by config.START_YEAR
+    START_DATE = pd.Timestamp(year=config.START_YEAR, month=1, day=1)
+    print(f"  Aligning all EDA to start year: {config.START_YEAR}")
+    for key in ["adjusted", "close", "open", "high", "low", "mktcap", "dv"]:
+        if key in data:
+            data[key] = data[key][data[key].index >= START_DATE]
+            
     print(f"  Loaded: {list(data.keys())}")
 
     if 0 in parts:
-        run_data_quality_eda(data)
+        run_data_quality_eda(data, OUTPUT_DIR)
 
-    # Import and run ZY's EDA modules
+    # Import and run sub-modules (with parameter injection)
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "eda"))
 
     if 1 in parts:
         print("\n  Running Part 1: Return Distribution...")
         from eda.return_distribution import main as run_return_dist
-
-        run_return_dist()
+        run_return_dist(data=data, output_dir=OUTPUT_DIR)
 
     if 2 in parts:
         print("\n  Running Part 2: Factor Analysis...")
         from eda.factor_analysis import main as run_factor
-
-        run_factor()
+        run_factor(data=data, output_dir=OUTPUT_DIR)
 
     if 3 in parts:
         print("\n  Running Part 3: Correlation Structure...")
         from eda.correlation_structure import main as run_corr
-
-        run_corr()
+        run_corr(data=data, output_dir=OUTPUT_DIR)
 
     if 5 in parts:
         print("\n  Running Part 5: Liquidity Analysis...")
         from eda.liquidity_analysis import main as run_liq
-
-        run_liq()
+        run_liq(data=data, output_dir=OUTPUT_DIR)
 
     if 6 in parts:
         print("\n  Running Part 6: Volatility Deep-Dive...")
         from eda.volatility_deepdive import main as run_vol
-
-        run_vol()
+        run_vol(data=data, output_dir=OUTPUT_DIR)
 
     if 7 in parts:
         print("\n  Running Part 7: Regime Characterization...")
         from eda.regime_characterization import main as run_regime
-
-        run_regime()
+        run_regime(data=data, output_dir=OUTPUT_DIR)
 
     if 8 in parts:
         print("\n  Running Part 8: Survivorship Analysis...")
         from eda.survivorship_analysis import main as run_surv
-
-        run_surv()
+        run_surv(data=data, output_dir=OUTPUT_DIR)
 
     print("\n" + "=" * 70)
     print("  EDA pipeline complete! Check output/eda/ for results.")

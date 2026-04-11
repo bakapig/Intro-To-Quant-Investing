@@ -13,5 +13,13 @@ main/output/cache/
 venv/
 env/
 
-# pycache
+# pycache and compiled files
+__pycache__/
 *.pyc
+*.pyo
+*.pyd
+.Python
+
+# Output and Results
+output/
+output_*/

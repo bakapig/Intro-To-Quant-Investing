@@ -242,9 +242,14 @@ def _build_earnings_yield(data: dict) -> pd.DataFrame:
 # ── main ─────────────────────────────────────────────────────────────────────
 
 
-def main():
-    print("Loading data …")
-    data = load_all_data()
+def main(data=None, output_dir=None):
+    global OUTPUT_DIR
+    if output_dir:
+        OUTPUT_DIR = output_dir
+
+    if data is None:
+        print("Loading data …")
+        data = load_all_data()
 
     adj = data["adjusted"]
     close = data["close"]

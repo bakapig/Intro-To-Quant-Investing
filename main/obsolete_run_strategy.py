@@ -36,6 +36,7 @@ from backtest_engine import (
     run_backtrader_engine,
     setup_logger,
 )
+from benchmark_downloader import download_benchmark_etf
 
 # ===========================================================================
 # Configuration
@@ -43,6 +44,7 @@ from backtest_engine import (
 
 DATA_DIR = "data_cn"
 OUTPUT_DIR = "output_20260410"
+USE_CACHE = True  # Set to True to skip HMM/BIC and jump straight to Backtrader
 
 def _run_backtest_task(task_kwargs):
     """Wrapper to run backtest and prevent pickling Cerebro objects back to main process."""
@@ -59,13 +61,30 @@ def main(hurst_window, n_states):
     print("  HMM + Hurst Regime-Switching Strategy (JC Pipeline)")
     print("=" * 70)
 
-    # ------------------------------------------------------------------
-    # Step 1: Load Price Data and Market Cap Data
-    # ------------------------------------------------------------------
     print("\n[1/5] Loading data...")
     data = load_all_data(DATA_DIR)
     df_prices = data["adjusted"]
     df_mcap = data["mktcap"]
+
+    # Ensure Benchmark ETF Data (CSI 300)
+    BENCHMARK_TICKER = "510300"
+    BENCHMARK_PATH = os.path.join(DATA_DIR, f"benchmark_{BENCHMARK_TICKER}.csv")
+    if not os.path.exists(BENCHMARK_PATH):
+        download_benchmark_etf(BENCHMARK_PATH, ticker=f"{BENCHMARK_TICKER}.SS")
+    
+    df_benchmark_src = pd.read_csv(BENCHMARK_PATH)
+    df_benchmark_src["Date"] = pd.to_datetime(df_benchmark_src["Date"].astype(str), format="%Y%m%d")
+    df_benchmark_src.set_index("Date", inplace=True)
+    
+    # Dynamic Start Date: Start exactly when we have benchmark data
+    GLOBAL_START_DATE = df_benchmark_src.index.min()
+    print(f"  Dynamically aligning backtest to start on benchmark launch: {GLOBAL_START_DATE.date()}")
+
+    # Align Universe to Benchmark Start
+    df_prices = df_prices[df_prices.index >= GLOBAL_START_DATE]
+    df_mcap = df_mcap[df_mcap.index >= GLOBAL_START_DATE]
+
+    benchmark_log_ret = np.log(df_benchmark_src / df_benchmark_src.shift(1)).dropna()
 
     print(f"  Adjusted prices shape: {df_prices.shape}")
     print(f"  Market cap shape:      {df_mcap.shape}")
@@ -73,69 +92,92 @@ def main(hurst_window, n_states):
     tickers_csv_path = os.path.join(DATA_DIR, "tickers.csv")
 
     # ------------------------------------------------------------------
-    # Step 2: Run the Main Engine (Extract Returns and Hurst)
+    # Step 2-4 Cache Logic
     # ------------------------------------------------------------------
-    # print("\n[2/5] Processing universe with HMM regimes...")
+    cache_dir = os.path.join(OUTPUT_DIR, "cache")
+    signal_cache_name = f"signal_df (STATES={n_states}, HURST WINDOW={hurst_window}, MOMENTUM PERIODS={momentum_periods}).parquet"
+    var_cache_name = f"var_df (STATES={n_states}, HURST WINDOW={hurst_window}, MOMENTUM PERIODS={momentum_periods}).parquet"
+    
+    signal_cache_path = os.path.join(cache_dir, signal_cache_name)
+    var_cache_path = os.path.join(cache_dir, var_cache_name)
 
-    # # Run with the specified number of states
-    # print(f"\n  --- {n_states}-State HMM ---")
-    # strat_ret, bh_ret, signal_df, bic_all, var_df = process_universe(
-    #     df_prices, n_states=n_states, tickers_csv_path=tickers_csv_path, hurst_window=hurst_window, momentum_periods=momentum_periods
-    # )
+    if USE_CACHE and os.path.exists(signal_cache_path) and os.path.exists(var_cache_path):
+        print("\n[USE_CACHE=True] Detected valid cache. Skipping Steps 2, 3, and 4.")
+        print(f"  Loading signals from: {signal_cache_name}")
+    else:
+        # ------------------------------------------------------------------
+        # Step 2: Run the Main Engine (Extract Returns and Hurst)
+        # ------------------------------------------------------------------
+        print("\n[2/5] Processing universe with HMM regimes...")
 
-    # # # Cache signals and VaR so extra backtests can skip HMM+Hurst
-    # cache_dir = os.path.join(OUTPUT_DIR, "cache")
-    # os.makedirs(cache_dir, exist_ok=True)
-    # signal_df.to_parquet(os.path.join(cache_dir, f"signal_df (STATES={n_states}, HURST WINDOW={hurst_window}, MOMENTUM PERIODS={momentum_periods}).parquet"))
-    # var_df.to_parquet(os.path.join(cache_dir, f"var_df (STATES={n_states}, HURST WINDOW={hurst_window}, MOMENTUM PERIODS={momentum_periods}).parquet"))
-    # print("  Cached signals and VaR to output/cache/")
+        # Run with the specified number of states
+        print(f"\n  --- {n_states}-State HMM ---")
+        strat_ret, bh_ret, signal_df, bic_all, var_df = process_universe(
+            df_prices, n_states=n_states, tickers_csv_path=tickers_csv_path, hurst_window=hurst_window, momentum_periods=momentum_periods
+        )
 
-    # # ------------------------------------------------------------------
-    # # Step 3: BIC Analysis
-    # # ------------------------------------------------------------------
-    # print("\n[3/5] Running BIC analysis...")
-    # bic_summary = bic_all.groupby("n_states")["bic"].agg(["mean", "std", "count"])
+        # Cache signals and VaR so extra backtests can skip HMM+Hurst
+        os.makedirs(cache_dir, exist_ok=True)
+        signal_df.to_parquet(signal_cache_path)
+        var_df.to_parquet(var_cache_path)
+        print("  Cached signals and VaR to output/cache/")
 
-    # # best_model = bic_all.loc[bic_all.groupby("ticker")["bic"].idxmin()]
-    # # selection_freq = best_model["n_states"].value_counts(normalize=True)
+        # ------------------------------------------------------------------
+        # Step 3: BIC Analysis
+        # ------------------------------------------------------------------
+        print("\n[3/5] Running BIC analysis...")
+        bic_summary = bic_all.groupby("n_states")["bic"].agg(["mean", "std", "count"])
 
-    # print("\nBIC Summary:")
-    # print(bic_summary)
-    # # print("\nModel Selection Frequency:")
-    # # print(selection_freq)
+        print("\nBIC Summary:")
+        print(bic_summary)
 
-    # bic_summary.to_csv(os.path.join(OUTPUT_DIR, "bic_summary.csv"))
+        bic_summary.to_csv(os.path.join(OUTPUT_DIR, "bic_summary.csv"))
 
-    # # ------------------------------------------------------------------
-    # # Step 4: Evaluate Portfolio Returns (MCap Weighted)
-    # # ------------------------------------------------------------------
-    # print(f"\n[4/5] Evaluating portfolio performance ({n_states}-state model)...")
+        # ------------------------------------------------------------------
+        # Step 4: Evaluate Portfolio Returns (MCap Weighted)
+        # ------------------------------------------------------------------
+        print(f"\n[4/5] Evaluating portfolio performance ({n_states}-state model)...")
 
-    # portfolio_eval_df = calculate_mcap_weighted_returns(
-    #     strat_log_returns=strat_ret, bh_log_returns=bh_ret, mcap_df=df_mcap
-    # )
+        # Align benchmark returns with strategy index
+        benchmark_log_ret_aligned = benchmark_log_ret.reindex(strat_ret.index).fillna(0)
+        benchmark_series = benchmark_log_ret_aligned.iloc[:, 0] if isinstance(benchmark_log_ret_aligned, pd.DataFrame) else benchmark_log_ret_aligned
 
-    # performance_metrics = evaluate_backtest(portfolio_eval_df)
+        # Calculate Portfolio Strategy Returns (weighted sum of universe strategy returns)
+        mcap_aligned = df_mcap.reindex(index=strat_ret.index, columns=strat_ret.columns).shift(1)
+        weights = mcap_aligned.div(mcap_aligned.sum(axis=1), axis=0).fillna(0)
+        
+        port_simple_strat = ((np.exp(strat_ret) - 1) * weights).sum(axis=1)
+        port_log_strat = np.log(1 + port_simple_strat)
 
-    # print("\n--- Strategy vs Benchmark Performance ---")
-    # print(performance_metrics)
-    # print("-" * 50)
+        portfolio_eval_df = pd.DataFrame({
+            "Log_Return": benchmark_series,
+            "Strategy_Return": port_log_strat
+        }).replace(0, np.nan).dropna()
 
-    # performance_metrics.to_csv(os.path.join(OUTPUT_DIR, "performance_metrics.csv"))
+        performance_metrics = evaluate_backtest(portfolio_eval_df)
+
+        print("\n--- Strategy vs Benchmark Performance ---")
+        print(performance_metrics)
+        print("-" * 50)
+
+        performance_metrics.to_csv(os.path.join(OUTPUT_DIR, "performance_metrics.csv"))
 
     # ------------------------------------------------------------------
     # Step 5: Backtrader Execution
     # ------------------------------------------------------------------
     print("\n[5/5] Running Backtrader backtests...")
-    cache_dir = "./output/cache/"
-    signal_df = pd.read_parquet(os.path.join(cache_dir, f"signal_df (STATES={n_states}, HURST WINDOW={hurst_window}, MOMENTUM PERIODS={momentum_periods}).parquet"))
-    var_df = pd.read_parquet(os.path.join(cache_dir, f"var_df (STATES={n_states}, HURST WINDOW={hurst_window}, MOMENTUM PERIODS={momentum_periods}).parquet"))
+    signal_df = pd.read_parquet(signal_cache_path)
+    var_df = pd.read_parquet(var_cache_path)
 
     target_weights = generate_target_weights(signal_df, df_mcap)
 
     common_columns = list(
         col for col in df_prices.columns if col in target_weights.columns
     )
+
+    # Target Weights for CSI 300 ETF (Benchmark Task)
+    etf_prices = df_benchmark_src.reindex(df_prices.index).ffill()
+    benchmark_weights = pd.DataFrame(index=etf_prices.index, columns=[BENCHMARK_TICKER], data=1.0)
 
     bh_weights = generate_target_weights(
         signals_df=signal_df, df_mcap=df_mcap, is_buy_and_hold=True
@@ -170,9 +212,9 @@ def main(hurst_window, n_states):
     print("\n  Dispatching parallel backtests to CPU worker pool...")
     backtest_tasks = [
         {
-            "df_prices": df_prices[common_columns],
-            "target_weights_df": bh_weights[common_columns],
-            "test_name": f"Buy & Hold (Market Cap Weighted) {current_time}",
+            "df_prices": etf_prices[etf_prices.notna().any(axis=1)],
+            "target_weights_df": benchmark_weights,
+            "test_name": f"CSI 300 ETF Buy & Hold (Benchmark) {current_time}",
             "print_logs": False,
             "output_dir": OUTPUT_DIR,
             "use_elder_rules": False,
