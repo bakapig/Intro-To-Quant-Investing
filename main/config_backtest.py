@@ -20,7 +20,7 @@ MOMENTUM_PERIODS = [21]   # e.g., test all 3 momentum periods
 # 2. Execution Scope Overrides
 # ===========================================================================
 # You might want a different timeline for the backtest execution.
-START_YEAR = 2008 #Set this to whenever you want trades to start
+START_YEAR = 2016 #Set this to whenever you want trades to start
 
 # ===========================================================================
 # 2. Execution Frequencies

@@ -43,7 +43,7 @@ from data_loader import load_all_data, build_cap_weighted_market_index
 # Configuration
 # ===========================================================================
 
-OUTPUT_DIR = os.path.join(config.OUTPUT_DIR, "eda")
+OUTPUT_DIR = "eda_result"
 
 
 # ===========================================================================

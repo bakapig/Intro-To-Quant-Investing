@@ -35,13 +35,14 @@ def _run_backtest_task(task_kwargs):
     _, _, metrics = run_backtrader_engine(**task_kwargs)
     return metrics
 
-def main(hurst_window):
+def main(hurst_window, start_year=None, output_subdir=None):
     print("\n" + "=" * 70)
     print(f"  STAGE 2: Backtesting (Hurst Window={hurst_window})")
     print("=" * 70)
     
     # Create window-specific output directory
-    window_out_dir = os.path.join(cfg.OUTPUT_DIR, f"hurst_{hurst_window}")
+    base_out = os.path.join(cfg.OUTPUT_DIR, output_subdir) if output_subdir else cfg.OUTPUT_DIR
+    window_out_dir = os.path.join(base_out, f"hurst_{hurst_window}")
     os.makedirs(window_out_dir, exist_ok=True)
 
     # 1. Load Data
@@ -70,8 +71,9 @@ def main(hurst_window):
         constituent_mask = None
 
     # Align to Effective Start Year
-    GLOBAL_START_DATE = pd.Timestamp(year=cfg.START_YEAR, month=1, day=1)
-    print(f"  Aligning all data to start date: {GLOBAL_START_DATE.date()} (from config_backtest)")
+    effective_year = start_year if start_year is not None else cfg.START_YEAR
+    GLOBAL_START_DATE = pd.Timestamp(year=effective_year, month=1, day=1)
+    print(f"  Aligning all data to start date: {GLOBAL_START_DATE.date()} (Parameter: {start_year}, Config: {cfg.START_YEAR})")
 
     df_close = df_close[df_close.index >= GLOBAL_START_DATE]
     df_open = df_open[df_open.index >= GLOBAL_START_DATE]
@@ -179,6 +181,8 @@ def main(hurst_window):
             f"{r['Max DD (%)']:>7.2f}% | {r['Sharpe']:>7.2f}"
         )
     print("-" * 130)
+
+    return all_kpis
 
 if __name__ == "__main__":
     for hw in cfg.HURST_WINDOWS:

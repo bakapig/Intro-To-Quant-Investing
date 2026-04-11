@@ -1,21 +1,21 @@
 """
 eda/factor_analysis.py
 ----------------------
-Part 2 – Cross-sectional factor analysis
+Part 2 - Cross-sectional factor analysis
 
 Factors analysed (monthly rebalance, quintile sorts):
-  1. Value        – price-to-book  (p2b.csv),  low P/B = cheap
-  2. Size         – market cap     (mktcap.csv), small = Q1
-  3. Momentum     – trailing 12-1 month returns
-  4. Liquidity    – dollar volume  (dv.csv),    low DV = illiquid
-  5. Analyst Rec  – consensus rec  (recm.csv)
-  6. Earnings Yld – EPS / price    (eps.csv / close.csv)
+  1. Value        - price-to-book  (p2b.csv),  low P/B = cheap
+  2. Size         - market cap     (mktcap.csv), small = Q1
+  3. Momentum     - trailing 12-1 month returns
+  4. Liquidity    - dollar volume  (dv.csv),    low DV = illiquid
+  5. Analyst Rec  - consensus rec  (recm.csv)
+  6. Earnings Yld - EPS / price    (eps.csv / close.csv)
 
 For each factor we:
-  • At each month-end, rank stocks into 5 equal quintiles on the signal.
-  • Compute the equal-weighted return of each quintile over the *next* month.
-  • Plot cumulative quintile returns and the long-short (Q1 − Q5) spread.
-  • Report annualised return, vol, and Sharpe for each quintile + spread.
+   At each month-end, rank stocks into 5 equal quintiles on the signal.
+   Compute the equal-weighted return of each quintile over the *next* month.
+   Plot cumulative quintile returns and the long-short (Q1 - Q5) spread.
+   Report annualised return, vol, and Sharpe for each quintile + spread.
 
 All outputs go to  output/eda/ .
 """
@@ -38,7 +38,7 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 plt.rcParams.update({"figure.dpi": 150, "savefig.bbox": "tight", "font.size": 10})
 
 
-# ── helpers ──────────────────────────────────────────────────────────────────
+#  helpers 
 
 
 def _monthly_returns(adj: pd.DataFrame) -> pd.DataFrame:
@@ -73,8 +73,8 @@ def _quintile_sort(
     """
     For each month, rank stocks into 5 quintiles on *signal*,
     return a DataFrame of equal-weighted quintile returns (columns Q1..Q5).
-    ascending=True  → Q1 = lowest signal value
-    ascending=False → Q1 = highest signal value
+    ascending=True  -> Q1 = lowest signal value
+    ascending=False -> Q1 = highest signal value
     """
     # Align indices
     common_dates = signal.index.intersection(fwd_ret.index).intersection(
@@ -136,7 +136,7 @@ def _plot_factor(
         elif q == "Q5":
             label += f" ({q5_label})"
         ax.plot(cum.index, cum[q], lw=1.2, color=colors[i], label=label)
-    ax.set_title(f"{factor_name} – Quintile cumulative returns")
+    ax.set_title(f"{factor_name} - Quintile cumulative returns")
     ax.set_ylabel("Growth of $1")
     ax.legend(fontsize=8, loc="upper left")
     ax.grid(alpha=0.3)
@@ -146,14 +146,14 @@ def _plot_factor(
     cum_ls = (1 + quintile_ret["LS"]).cumprod()
     ax.plot(cum_ls.index, cum_ls.values, lw=1.3, color="navy")
     ax.axhline(1, color="grey", ls="--", lw=0.5)
-    ax.set_title(f"{factor_name} – Long Q1 / Short Q5")
+    ax.set_title(f"{factor_name} - Long Q1 / Short Q5")
     ax.set_ylabel("Growth of $1")
     ax.grid(alpha=0.3)
 
     fig.tight_layout()
     fig.savefig(os.path.join(OUTPUT_DIR, filename))
     plt.close(fig)
-    print(f"  ✓ {filename}")
+    print(f"  [Done] {filename}")
 
 
 def _print_stats(quintile_ret: pd.DataFrame, factor_name: str) -> pd.DataFrame:
@@ -163,12 +163,12 @@ def _print_stats(quintile_ret: pd.DataFrame, factor_name: str) -> pd.DataFrame:
     sharpe = ann / vol
     stats = pd.DataFrame({"Ann Return": ann, "Ann Vol": vol, "Sharpe": sharpe})
     stats.index.name = "Quintile"
-    print(f"\n  {factor_name} – Quintile statistics (annualised)")
+    print(f"\n  {factor_name} - Quintile statistics (annualised)")
     print(stats.round(4).to_string())
     return stats
 
 
-# ── Factor signal builders ──────────────────────────────────────────────────
+#  Factor signal builders 
 
 
 def _build_momentum_signal(adj: pd.DataFrame) -> pd.DataFrame:
@@ -239,7 +239,7 @@ def _build_earnings_yield(data: dict) -> pd.DataFrame:
     return ey
 
 
-# ── main ─────────────────────────────────────────────────────────────────────
+#  main 
 
 
 def main(data=None, output_dir=None):
@@ -248,7 +248,7 @@ def main(data=None, output_dir=None):
         OUTPUT_DIR = output_dir
 
     if data is None:
-        print("Loading data …")
+        print("Loading data ...")
         data = load_all_data()
 
     adj = data["adjusted"]
@@ -258,7 +258,7 @@ def main(data=None, output_dir=None):
     dv = data["dv"]
     recm = data["recm"]
 
-    print("Computing monthly returns & universe mask …")
+    print("Computing monthly returns & universe mask ...")
     monthly_ret = _monthly_returns(adj)
     fwd_ret = monthly_ret.shift(-1)  # next-month return
     univ_mask_daily = _get_universe_mask(data, adj)
@@ -269,8 +269,8 @@ def main(data=None, output_dir=None):
 
     all_stats = {}
 
-    # ── 1. Value (P/B) ──────────────────────────────────────────────────────
-    print("\n1. Value factor (P/B) …")
+    #  1. Value (P/B) 
+    print("\n1. Value factor (P/B) ...")
     sig = _monthly_signal(p2b)
     qr = _quintile_sort(sig, fwd_ret, univ_mask, ascending=True)
     _plot_factor(
@@ -282,22 +282,22 @@ def main(data=None, output_dir=None):
     )
     all_stats["Value (P/B)"] = _print_stats(qr, "Value (P/B)")
 
-    # ── 2. Size (Market Cap) ────────────────────────────────────────────────
-    print("\n2. Size factor (Market Cap) …")
+    #  2. Size (Market Cap) 
+    print("\n2. Size factor (Market Cap) ...")
     sig = _monthly_signal(mktcap)
     qr = _quintile_sort(sig, fwd_ret, univ_mask, ascending=True)
     _plot_factor(qr, "Size (Mkt Cap)", "Small cap", "Large cap", "08_factor_size.png")
     all_stats["Size"] = _print_stats(qr, "Size (Mkt Cap)")
 
-    # ── 3. Momentum (12-1) ──────────────────────────────────────────────────
-    print("\n3. Momentum factor (12-1 month) …")
+    #  3. Momentum (12-1) 
+    print("\n3. Momentum factor (12-1 month) ...")
     sig = _build_momentum_signal(adj)
     qr = _quintile_sort(sig, fwd_ret, univ_mask, ascending=False)
     _plot_factor(qr, "Momentum (12-1)", "Winners", "Losers", "09_factor_momentum.png")
     all_stats["Momentum"] = _print_stats(qr, "Momentum (12-1)")
 
-    # ── 4. Liquidity (Dollar Volume) ────────────────────────────────────────
-    print("\n4. Liquidity factor (Dollar Volume) …")
+    #  4. Liquidity (Dollar Volume) 
+    print("\n4. Liquidity factor (Dollar Volume) ...")
     sig = _monthly_signal(dv)
     qr = _quintile_sort(sig, fwd_ret, univ_mask, ascending=True)
     _plot_factor(
@@ -309,8 +309,8 @@ def main(data=None, output_dir=None):
     )
     all_stats["Liquidity"] = _print_stats(qr, "Liquidity (DV)")
 
-    # ── 5. Analyst Recommendation ───────────────────────────────────────────
-    print("\n5. Analyst recommendation …")
+    #  5. Analyst Recommendation 
+    print("\n5. Analyst recommendation ...")
     sig = _monthly_signal(recm)
     qr = _quintile_sort(sig, fwd_ret, univ_mask, ascending=False)
     _plot_factor(
@@ -318,8 +318,8 @@ def main(data=None, output_dir=None):
     )
     all_stats["Analyst Rec"] = _print_stats(qr, "Analyst Rec")
 
-    # ── 6. Earnings Yield (EPS / Price) ─────────────────────────────────────
-    print("\n6. Earnings yield (EPS / price) …")
+    #  6. Earnings Yield (EPS / Price) 
+    print("\n6. Earnings yield (EPS / price) ...")
     ey = _build_earnings_yield(data)
     sig = _monthly_signal(ey)
     qr = _quintile_sort(sig, fwd_ret, univ_mask, ascending=False)
@@ -332,7 +332,7 @@ def main(data=None, output_dir=None):
     )
     all_stats["Earnings Yield"] = _print_stats(qr, "Earnings Yield")
 
-    # ── Summary table ────────────────────────────────────────────────────────
+    #  Summary table 
     summary_rows = []
     for name, st in all_stats.items():
         summary_rows.append(
@@ -348,8 +348,8 @@ def main(data=None, output_dir=None):
     summary_df.to_csv(
         os.path.join(OUTPUT_DIR, "13_factor_summary.csv"), float_format="%.4f"
     )
-    print("\n  ✓ 13_factor_summary.csv")
-    print("\n  Factor summary (long-short = Q1 − Q5):")
+    print("\n  [DONE] 13_factor_summary.csv")
+    print("\n  Factor summary (long-short = Q1 - Q5):")
     print(summary_df.round(4).to_string())
 
     print(f"\nDone. Outputs saved to {os.path.abspath(OUTPUT_DIR)}")
