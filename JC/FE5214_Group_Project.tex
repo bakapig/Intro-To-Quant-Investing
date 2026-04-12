@@ -381,7 +381,7 @@ HMM + VaR Parity & \textbf{140,811,506} & 3,590 & \textbf{51.6\%} & \textbf{-25.
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.8\linewidth]{../main/backtest_result/Return_over_time.png}
-    \caption{Cumulative Return Performance across Strategies (until 2025)}
+    \caption{Cumulative Return Performance vs Starting Year across Strategies}
     \label{fig:return_over_time}
 \end{figure}
 
@@ -425,9 +425,11 @@ Health Care shows a meaningful positive Allocation effect ($\approx +0.7\%$), in
 Overall, the attribution analysis indicates that the strategy derives more value from intra-sector stock selection than from sector rotation. The Selection bars dominate across most sectors, confirming that the HMM + Hurst signals primarily add alpha through timing individual stock exposures rather than macro-level sector tilts. The concentrated negative allocation in Financials points to a clear avenue for improvement: introducing explicit sector-weight constraints --- such as capping the Financials allocation --- could materially reduce this drag and improve risk-adjusted performance.
 
 \section{Conclusion}
-This paper presents a theoretical and empirical framework that bridges the gap between macroeconomic regime modeling and microstructural price behavior. By integrating a Gaussian Hidden Markov Model with the Hurst exponent, the proposed architecture effectively filters out the "noise" that plagues traditional momentum strategies.
+This paper presents a comprehensive theoretical and empirical framework that successfully bridges macroeconomic regime modeling with microstructural price behavior. By integrating a Gaussian Hidden Markov Model (HMM) to detect broad market regimes with the Hurst exponent to measure local trend persistence, the proposed architecture effectively filters out the noise and whipsaw signals that typically degrade traditional, naive momentum strategies. This cooperative strategy shows that signal robustness can be greatly increased by matching tactical momentum indicators with probabilistically predicted market settings.
 
-Future research could expand this framework from a time-series application (single asset) to a cross-sectional application (multi-asset portfolios). Specifically, calculating the Hurst exponent across an entire equities universe to construct a Smart Momentum Factor—going long only on assets exhibiting both high relative momentum and a Hurst exponent $>$ 0.6— represents a promising frontier for multifactor quantitative modeling.
+However, a central finding of our backtesting analysis is that regime detection alone is insufficient to generate consistent outperformance. Empirical results show that the unscaled signal-driven weighting scheme (Standard HMM) suffered from severe drawdowns and yielded a negative Sharpe ratio. In contrast, pairing the regime-switching signals with volatility-sensitive position sizing—specifically through an Inverse VaR (Risk Parity) framework—drastically improved the strategy's viability. By dynamically scaling capital allocation inversely to forecasted downside risk, the HMM + VaR Parity execution managed to achieve the highest final portfolio value, tightly controlled drawdowns, and a superior Sharpe ratio. This highlights that adaptive risk budgeting is a mandatory component for regime-switching models to survive and capitalize on structural market breaks.
+
+Expanding this concept from a time-series approach to a more comprehensive cross-sectional application holds great promise for future research. Calculating the Hurst exponent across the entire equity universe could allow for the construction of a novel "Smart Momentum Factor"—a portfolio going long exclusively on assets that rank highest in relative cross-sectional momentum while simultaneously exhibiting strong long-memory persistence ($H > 0.6$). Such advancements represent a promising frontier for multifactor quantitative modeling and adaptive portfolio management.
 
 \printbibliography
 
