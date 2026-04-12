@@ -8,7 +8,7 @@
 \usepackage{graphicx}
 \usepackage{float}
 \usepackage{booktabs}
-\usepackage[backend=biber,style=numeric]{biblatex}
+\usepackage[backend=biber,style=numeric-comp]{biblatex}
 \addbibresource{references.bib}
 
 \setlength{\parskip}{\baselineskip}%
@@ -295,6 +295,17 @@ Using the Amihud illiquidity ratio (Figure \ref{fig:amihud}), we observe that ex
     \label{fig:amihud}
 \end{figure}
 
+\subsubsection{Hurst Exponent}
+
+The Figure~\ref{fig:hurst_000031} presents the adjusted closing prices, sector-neutral log returns, and rolling Hurst exponent for a sample Chinese equity. The price exhibits an upward trend between 2014 and 2016, and it was followed by a prolonged decline and stabilization. This period coincides with elevated Hurst exponent values above 0.6, which implies strong persistence and trending behavior. On the other hand, the post-2020 period is characterized by Hurst values predominantly below 0.5, which implies the mean-reverting dynamics. The log return series reveals volatility clustering, especially during trending phase. Overall, the evidence supports the presence of time-varying market regimes, therefore it highlights the importance of adaptive training strategies.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{../main/backtest_result/hurst_full_000031.png}
+    \caption{Price, Log Return and Hurst Exponent of a sample stock}
+    \label{fig:hurst_000031}
+\end{figure}
+
 
 \subsection{Backtesting Framework}
 
@@ -408,5 +419,7 @@ Future research could expand this framework from a time-series application (sing
     Dudia, Ashwin, et al. "Short Term Trading Model for Asian Equity Index Futures -- Using Hurst Exponent." \textit{SSRN}, 23 Feb. 2020, \url{https://doi.org/10.2139/ssrn.3543079}.
 
 \end{thebibliography}
+
+\printbibliography
 
 \end{document}
