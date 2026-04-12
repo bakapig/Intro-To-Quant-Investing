@@ -96,7 +96,8 @@ The second-order fluctuation function $F_2(s)$ is computed as the root-mean-squa
 \subsection{Tactical Momentum and Signal Integration}
 The final trading signal $\theta_t \in \{-1, 0, 1\}$ is generated through a strict gating mechanism that intersects the Macro Regime ($S_t$), Microstructural Hurst Exponent ($H_t$), and Tactical Momentum ($M_t$), where $M_t$ is defined as the $n$-period simple return.
 
-The strategy implements the following rule set based on defined thresholds ($H_{\text{upper}}$ for strong persistence, $H_{\text{lower}}$ for strong anti-persistence):
+
+The strategy implements the following rule set based on defined thresholds, where $H_{\text{upper}} = 0.6$ (for strong persistence) and $H_{\text{lower}} = 0.4$ (for strong anti-persistence):
 
 \paragraph{State 0 (Low Volatility - Risk On)}
 \begin{itemize}
