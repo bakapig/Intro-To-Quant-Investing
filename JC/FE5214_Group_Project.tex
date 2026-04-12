@@ -7,6 +7,8 @@
 \usepackage{tabularx}
 \usepackage{graphicx}
 \usepackage{float}
+\usepackage{booktabs}
+
 
 \setlength{\parskip}{\baselineskip}%
 \setlength{\parindent}{0pt}%
@@ -147,41 +149,248 @@ Traditional financial models often assume that returns are normally distributed.
     \centering
     \includegraphics[width=0.9\textwidth]{../main/eda_result/01_return_histograms.png}
     \caption{Return Distribution: The empirical distribution of market returns exhibits significantly higher peaks and "fatter tails" (excess kurtosis) than the normal distribution overlay.}
+    \label{fig:ret_hist}
 \end{figure}
 
-The Jarque-Bera test confirms this deviation from normality, with significant skewness and kurtosis that indicate a higher probability of extreme "black swan" events than predicted by a Random Walk model. This non-normality is further visualized in the QQ-plot (Figure 5), where the "S-curve" shape at the extremes denotes the presence of heavy tails.
+The Jarque-Bera test confirms this deviation from normality, with significant skewness and kurtosis that indicate a higher probability of extreme "black swan" events than predicted by a Random Walk model. As shown in Table \ref{tab:summary_stats}, the excess kurtosis across all frequencies significantly exceeds the Gaussian baseline of zero, particularly for daily returns (4.7286). This non-normality is further visualized in the QQ-plot (Figure \ref{fig:qq_plot}), where the "S-curve" shape at the extremes denotes the presence of heavy tails.
+
+\begin{table}[H]
+    \centering
+    \small
+    \caption{Summary Statistics and Normality Tests for Market Returns (2006--2025)}
+    \label{tab:summary_stats}
+    \begin{tabular}{lrrrrrrr}
+    \toprule
+    \textbf{Frequency} & \textbf{N} & \textbf{Mean (\%)} & \textbf{Vol (\%)} & \textbf{Skew} & \textbf{Kurt} & \textbf{JB Stat} & \textbf{p-val} \\
+    \midrule
+    Daily   & 4859 & 0.0888 & 1.6040 & -0.1856 & 4.7286 & 4543.12 & 0.0000 \\
+    Weekly  & 1044 & 0.4123 & 3.4349 & 0.2610  & 3.3328 & 488.73  & 0.0000 \\
+    Monthly & 240  & 1.8708 & 8.0710 & 0.0102  & 2.0894 & 40.86   & 0.0000 \\
+    \bottomrule
+    \end{tabular}
+\end{table}
 
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.75\textwidth]{../main/eda_result/02_qq_plots.png}
     \caption{Quantile-Quantile (QQ) Plot: Significant deviations from the diagonal at the tails confirm that market returns are not Gaussian.}
+    \label{fig:qq_plot}
 \end{figure}
 
 \subsubsection{Volatility Clustering and Autocorrelation}
-A core motivation for the HMM is "volatility clustering"—the tendency for large price changes to be followed by further large price changes.
+A core motivation for the HMM is "volatility clustering"—the tendency for large price changes to be followed by further large price changes. This phenomenon strongly motivates the use of an HMM to capture prolonged periods of high or low volatility, which are unobserved but can be inferred from price action.
 
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.9\textwidth]{../main/eda_result/04_autocorrelation.png}
-    \caption{Autocorrelation Analysis: While raw returns (left) show little autocorrelation, the squared or absolute returns (right) show strong, persistent autocorrelation. This proves that volatility is not constant and exists in "regimes."}
+    \caption{Autocorrelation Analysis: While raw returns (left) show little autocorrelation, the squared or absolute returns (right) show strong, persistent autocorrelation. This perfectly visualizes the volatility clustering effect, justifying the transition from a constant-parameter random walk to a regime-switching framework.}
+    \label{fig:autocorr}
 \end{figure}
 
 \subsubsection{Market Regime Characterization}
-Using the evidence of volatility clustering, we trained an HMM to categorize the market into distinct states.
+The implementation of the Hidden Markov Model (HMM) provides a probabilistic lens through which to view structural shifts in market behavior. This analysis characterizes the transition between low-volatility "Efficient" states and high-volatility "Panic" states.
 
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.95\textwidth]{../main/eda_result/25_regime_context.png}
-    \caption{Market Regime Context: Overlays of HMM states on the Market Index and realized volatility. The model captures structural shifts in market behavior that simple moving averages often miss.}
+    \caption{Market Regime Context: This visualization overlays the HMM's state classification on the Market Index, drawdowns, realized volatility, and cross-sectional dispersion. It demonstrates the model's ability to identify regime shifts in real-time, matching the qualitative "feel" of market panics with quantitative state transitions.}
+    \label{fig:regime_context}
 \end{figure}
+
+The robust classification seen in Figure \ref{fig:regime_context} is further supported by the \textbf{HMM Transition Matrix}. Our empirical results show that market states are significantly "sticky," meaning that once the market enters a specific regime, it has a high mathematical probability of remaining there for a prolonged period.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.75\textwidth]{../main/eda_result/26_transition_matrix.png}
+    \caption{HMM Transition Matrix: The high diagonal probabilities confirm that regimes are persistent. This justifies our strategy's medium-term outlook, as the detected state is likely to persist long enough for capital allocation to be effective.}
+    \label{fig:transition_matrix}
+\end{figure}
+
+The necessity of this adaptive approach is best illustrated by the historical oscillation of volatility. As shown in Figure \ref{fig:mcw_vol}, the market frequently experiences sudden "panic-driven" spikes---most notably during the 2015 deleveraging crisis and the 2020 COVID-19 crash---which traditional linear models fail to accommodate.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{../main/eda_result/00_mcw_vol.png}
+    \caption{Market Cap Weighted (MCW) Volatility: Standardized rolling volatility depicts the drastic shifts between stable growth and extreme market stress, providing the empirical baseline for the HMM's switching logic.}
+    \label{fig:mcw_vol}
+\end{figure}
+
+Finally, we analyze how strategy factors behave across these detected states. As seen in Figure \ref{fig:factor_regime}, momentum efficacy is heavily dependent on the underlying regime, with the highest alpha generated during persistent "Trending" states ($H > 0.55$).
 
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.8\textwidth]{../main/eda_result/27_factor_by_regime.png}
-    \caption{Conditional Factor Performance: Momentum performance varies drastically by state, reaching its highest efficacy during the "Trending" regime.}
+    \caption{Conditional Factor Performance: Comparison of Strategy Sharpe Ratios across HMM regimes.}
+    \label{fig:factor_regime}
+\end{figure}
+
+\subsubsection{Baseline Momentum Factor Performance}
+Before implementing the HMM-regime filters, it is essential to establish the baseline performance of the momentum factor within our investable universe. 
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{../main/eda_result/09_factor_momentum.png}
+    \caption{Momentum Factor Performance: Cumulative returns of winners (Q1) vs. losers (Q5) and the resulting long/short spread. This establishes the raw alpha available before sophisticated filtering.}
+    \label{fig:mom_benchmark}
+\end{figure}
+
+The analysis in Figure \ref{fig:mom_benchmark} reveals that while momentum exhibits periods of significant outperformance, it is subject to sharp "reversals" and prolonged underperformance during market dislocations. As shown previously in Figure \ref{fig:factor_regime}, the efficacy of this factor---measured by its Long-Short Sharpe ratio---is highly regime-dependent. Specifically, momentum thrives in persistent trending environments but degrades into a random walk or mean-reverting behavior during high-volatility regimes. This empirical evidence provides the final justification for our tripartite framework: using HMM to filter regimes, Hurst to confirm persistence, and Momentum for tactical entry.
+
+\subsubsection{Survivorship Bias and Universe Dynamics}
+A common pitfall in quantitative backtesting is survivorship bias, where the exclusion of delisted or failed companies artificially inflates strategy returns. To ensure the robustness of this study, we explicitly track the entry and exit of tickers within our universe.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{../main/eda_result/28_universe_dynamics.png}
+    \caption{Universe Dynamics: The evolution of the investable universe size alongside annual entries (new listings) and exits (delistings). This confirms that our methodology accounts for the time-varying nature of the market pool.}
+    \label{fig:univ_dynamics}
+\end{figure}
+
+To quantify the impact of survivorship, we compared the performance of our full investable universe against a "Survivors Only" subset (stocks that existed throughout the entire period). 
+
+\begin{table}[H]
+    \centering
+    \small
+    \caption{Survivorship Bias Impact (2006--2025)}
+    \label{tab:survivorship}
+    \begin{tabular}{lcccc}
+    \toprule
+    \textbf{Portfolio Type} & \textbf{Ann. Ret} & \textbf{Ann. Vol} & \textbf{Sharpe} & \textbf{Growth} \\
+    \midrule
+    Full Universe (EW)      & 0.144 & 0.266 & 0.539 & 8.0x \\
+    Survivors Only (EW)     & 0.210 & 0.249 & 0.842 & 31.2x \\
+    \midrule
+    Full Universe (MCW)     & 0.196 & 0.235 & 0.835 & 25.8x \\
+    Survivors Only (MCW)    & 0.224 & 0.255 & 0.879 & 39.9x \\
+    \bottomrule
+    \end{tabular}
+\end{table}
+
+As shown in Table \ref{tab:survivorship} and Figure \ref{fig:surv_bias}, ignoring delistings would nearly triple the cumulative growth in an equal-weight portfolio. By utilizing a point-in-time constituent matrix, our backtesting framework avoids this inflation and reflects a realistic investable opportunity set.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{../main/eda_result/30_survivorship_bias.png}
+    \caption{Survivorship Bias Visualization: Performance gap between bias-free and biased universes.}
+    \label{fig:surv_bias}
+\end{figure}
+
+\subsubsection{Liquidity and Market Microstructure}
+The practical implementation of a quantitative strategy is constrained by market liquidity. Our HMM's decision to shift into cash during high-volatility regimes is further justified by the breakdown of liquidity during market stress events.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{../main/eda_result/19_liquidity_drawdowns.png}
+    \caption{Liquidity vs. Drawdowns: The relationship between aggregate market dollar volume and price drawdowns. Note how liquidity significantly contracts during the deepest phases of market crashes.}
+    \label{fig:liq_drawdown}
+\end{figure}
+
+Using the Amihud illiquidity ratio (Figure \ref{fig:amihud}), we observe that execution costs and slippage risk skyrocket during the high-volatility states identified by the HMM. This provides a fundamental microstructural rationale for our "Safe Harbor" rule: during periods of extreme illiquidity and high volatility, the safest tactical move is to reduce exposure to avoid the high costs of "distressed" trading.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{../main/eda_result/17_amihud_illiquidity.png}
+    \caption{Amihud Illiquidity Ratio: Cross-sectional median ratio over time. Spikes in illiquidity perfectly align with the HMM's high-volatility state transitions.}
+    \label{fig:amihud}
 \end{figure}
 
 \subsection{Backtesting Framework}
+
+This section presents the empirical implementation of the proposed trading framework and evaluates its performance using historical financial data provided by instructors in FE5214 Introduction to Quantitative Investing. The objective is to determine whether the integration of the Hurst exponent, Hidden Markov Models, and momentum indicators improves trading performance. The exploratory analysis focuses on characterizing the idiosyncratic and systematic risks within the Chinese equity universe from 2006 to 2025. This empirical evidence justifies the departure from Gaussian assumptions in favor of the Hidden Markov Model.
+
+\subsubsection{Non-Normality and Fat Tails}
+Traditional financial models often assume that returns are normally distributed. However, empirical evidence from our dataset strongly contradicts this.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{../main/eda_result/01_return_histograms.png}
+    \caption{Return Distribution: The empirical distribution of market returns exhibits significantly higher peaks and "fatter tails" (excess kurtosis) than the normal distribution overlay.}
+    \label{fig:ret_hist}
+\end{figure}
+
+The Jarque-Bera test confirms this deviation from normality, with significant skewness and kurtosis that indicate a higher probability of extreme "black swan" events than predicted by a Random Walk model. As shown in Table \ref{tab:summary_stats}, the excess kurtosis across all frequencies significantly exceeds the Gaussian baseline of zero, particularly for daily returns (4.7286). This non-normality is further visualized in the QQ-plot (Figure \ref{fig:qq_plot}), where the "S-curve" shape at the extremes denotes the presence of heavy tails.
+
+\begin{table}[H]
+    \centering
+    \small
+    \caption{Summary Statistics and Normality Tests for Market Returns (2006--2025)}
+    \label{tab:summary_stats}
+    \begin{tabular}{lrrrrrrr}
+    \toprule
+    \textbf{Frequency} & \textbf{N} & \textbf{Mean (\%)} & \textbf{Vol (\%)} & \textbf{Skew} & \textbf{Kurt} & \textbf{JB Stat} & \textbf{p-val} \\
+    \midrule
+    Daily   & 4859 & 0.0888 & 1.6040 & -0.1856 & 4.7286 & 4543.12 & 0.0000 \\
+    Weekly  & 1044 & 0.4123 & 3.4349 & 0.2610  & 3.3328 & 488.73  & 0.0000 \\
+    Monthly & 240  & 1.8708 & 8.0710 & 0.0102  & 2.0894 & 40.86   & 0.0000 \\
+    \bottomrule
+    \end{tabular}
+\end{table}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.75\textwidth]{../main/eda_result/02_qq_plots.png}
+    \caption{Quantile-Quantile (QQ) Plot: Significant deviations from the diagonal at the tails confirm that market returns are not Gaussian.}
+    \label{fig:qq_plot}
+\end{figure}
+
+\subsubsection{Volatility Clustering and Autocorrelation}
+A core motivation for the HMM is "volatility clustering"—the tendency for large price changes to be followed by further large price changes. This phenomenon strongly motivates the use of an HMM to capture prolonged periods of high or low volatility, which are unobserved but can be inferred from price action.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{../main/eda_result/04_autocorrelation.png}
+    \caption{Autocorrelation Analysis: While raw returns (left) show little autocorrelation, the squared or absolute returns (right) show strong, persistent autocorrelation. This perfectly visualizes the volatility clustering effect, justifying the transition from a constant-parameter random walk to a regime-switching framework.}
+    \label{fig:autocorr}
+\end{figure}
+
+\subsubsection{Market Regime Characterization}
+The implementation of the Hidden Markov Model (HMM) provides a probabilistic lens through which to view structural shifts in market behavior. This analysis characterizes the transition between low-volatility "Efficient" states and high-volatility "Panic" states.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.95\textwidth]{../main/eda_result/25_regime_context.png}
+    \caption{Market Regime Context: This visualization overlays the HMM's state classification on the Market Index, drawdowns, realized volatility, and cross-sectional dispersion. It demonstrates the model's ability to identify regime shifts in real-time, matching the qualitative "feel" of market panics with quantitative state transitions.}
+    \label{fig:regime_context}
+\end{figure}
+
+The robust classification seen in Figure \ref{fig:regime_context} is further supported by the \textbf{HMM Transition Matrix}. Our empirical results show that market states are significantly "sticky," meaning that once the market enters a specific regime, it has a high mathematical probability of remaining there for a prolonged period.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.75\textwidth]{../main/eda_result/26_transition_matrix.png}
+    \caption{HMM Transition Matrix: The high diagonal probabilities confirm that regimes are persistent. This justifies our strategy's medium-term outlook, as the detected state is likely to persist long enough for capital allocation to be effective.}
+    \label{fig:transition_matrix}
+\end{figure}
+
+The necessity of this adaptive approach is best illustrated by the historical oscillation of volatility. As shown in Figure \ref{fig:mcw_vol}, the market frequently experiences sudden "panic-driven" spikes---most notably during the 2015 deleveraging crisis and the 2020 COVID-19 crash---which traditional linear models fail to accommodate.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{../main/eda_result/00_mcw_vol.png}
+    \caption{Market Cap Weighted (MCW) Volatility: Standardized rolling volatility depicts the drastic shifts between stable growth and extreme market stress, providing the empirical baseline for the HMM's switching logic.}
+    \label{fig:mcw_vol}
+\end{figure}
+
+Finally, we analyze how strategy factors behave across these detected states. As seen in Figure \ref{fig:factor_regime}, momentum efficacy is heavily dependent on the underlying regime, with the highest alpha generated during persistent "Trending" states ($H > 0.55$).
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{../main/eda_result/27_factor_by_regime.png}
+    \caption{Conditional Factor Performance: Comparison of Strategy Sharpe Ratios across HMM regimes.}
+    \label{fig:factor_regime}
+\end{figure}
+
+\subsubsection{Baseline Momentum Factor Performance}
+Before implementing the HMM-regime filters, it is essential to establish the baseline performance of the momentum factor within our investable universe. 
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{../main/eda_result/09_factor_momentum.png}
+    \caption{Momentum Factor Performance: Cumulative returns of winners (Q1) vs. losers (Q5) and the resulting long/short spread. This establishes the raw alpha available before sophisticated filtering.}
+    \label{fig:mom_benchmark}
+\end{figure}
+
+The analysis in Figure \ref{fig:mom_benchmark} reveals that while momentum exhibits periods of significant outperformance, it is subject to sharp "reversals" and prolonged underperformance during market dislocations. As shown previously in Figure \ref{fig:factor_regime}, the efficacy of this factor---measured by its Long-Short Sharpe ratio---is highly regime-dependent. Specifically, momentum thrives in persistent trending environments but degrades into a random walk or mean-reverting behavior during high-volatility regimes. This empirical evidence provides the final justification for our tripartite framework: using HMM to filter regimes, Hurst to confirm persistence, and Momentum for tactical entry.
 
 \section{Results}
 In this section, we evaluate the performance of the proposed HMM-Hurst-Momentum strategy. We compare two specific configurations—a parsimonious 2-state model and a granular 3-state model—against a passive Buy-and-Hold (B\&H) benchmark.
