@@ -8,7 +8,7 @@
 \usepackage{graphicx}
 \usepackage{float}
 \usepackage{booktabs}
-\usepackage[backend=biber,style=numeric-comp]{biblatex}
+\usepackage[backend=biber,style=numeric-comp,sorting=none]{biblatex}
 \addbibresource{references.bib}
 
 \setlength{\parskip}{\baselineskip}%
@@ -338,7 +338,7 @@ To ensure the backtest reflects the realities of the Chinese A-share market, spe
 \end{itemize}
 
 \subsubsection{Tactical Risk Management (Elder Rules)}
-To test the impact of strict capital preservation heuristics, an optional risk-gating module based on Dr. Alexander Elder’s trading frameworks was integrated into the execution logic:
+To test the impact of strict capital preservation heuristics, an optional risk-gating module based on Dr. Alexander Elder’s trading frameworks \cite{elder2014} was integrated into the execution logic:
 \begin{enumerate}
     \item \textbf{The 2\% Rule:} The maximum gross exposure permitted for any single equity is strictly capped at 2\% of total portfolio equity, forcing diversification regardless of signal strength.
     \item \textbf{The 6\% Rule (Monthly Circuit Breaker):} The portfolio's high-water mark is sampled at the start of each calendar month. If the aggregate equity suffers a drawdown exceeding 6\% within that month, a trading halt is triggered, and no new positions are initiated until the subsequent month.
